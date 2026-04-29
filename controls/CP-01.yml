@@ -1,0 +1,16 @@
+control_id: CP-01
+title: Backup and Recovery
+domain: Business Continuity
+description: Backup and Recovery control for compliance readiness.
+implementation:
+  technical: []
+  procedural: []
+evidence: []
+owner: Security
+review_frequency: quarterly
+framework_mappings:
+  pci_dss: ["12.10.1"]
+  soc2: ["CC7.3", "A1.2"]
+  nist_800_53: ["CP-9", "CP-10"]
+  iso_27001: ["A.5.30", "A.8.13"]
+  iso_27002: ["5.30", "8.13"]

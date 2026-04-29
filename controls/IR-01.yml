@@ -1,0 +1,16 @@
+control_id: IR-01
+title: Incident Response
+domain: Incident Response
+description: Incident Response control for compliance readiness.
+implementation:
+  technical: []
+  procedural: []
+evidence: []
+owner: Security
+review_frequency: quarterly
+framework_mappings:
+  pci_dss: ["12.10"]
+  soc2: ["CC7.4", "CC7.5"]
+  nist_800_53: ["IR-4", "IR-6"]
+  iso_27001: ["A.5.24", "A.5.25", "A.5.26"]
+  iso_27002: ["5.24", "5.25", "5.26"]

@@ -1,0 +1,16 @@
+control_id: VM-01
+title: Vulnerability Management Program
+domain: Vulnerability Management
+description: Vulnerability Management Program control for compliance readiness.
+implementation:
+  technical: []
+  procedural: []
+evidence: []
+owner: Security
+review_frequency: quarterly
+framework_mappings:
+  pci_dss: ["6.3.3", "11.3.1", "11.3.2"]
+  soc2: ["CC7.1", "CC7.2"]
+  nist_800_53: ["RA-5", "SI-2"]
+  iso_27001: ["A.8.8"]
+  iso_27002: ["8.8"]

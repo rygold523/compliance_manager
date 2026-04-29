@@ -1,0 +1,11 @@
+framework: nist_800_53
+mappings:
+  AC-01: ["IA-2", "IA-5"]
+  AC-02: ["AC-2", "AC-3", "AC-6"]
+  VM-01: ["RA-5", "SI-2"]
+  SI-01: ["AU-6", "SI-4"]
+  CM-01: ["CM-2", "CM-3", "CM-6"]
+  NS-01: ["SC-7"]
+  EN-01: ["SC-12", "SC-13"]
+  IR-01: ["IR-4", "IR-6"]
+  CP-01: ["CP-9", "CP-10"]

@@ -1,0 +1,16 @@
+control_id: CM-01
+title: Configuration Management
+domain: Configuration Management
+description: Configuration Management control for compliance readiness.
+implementation:
+  technical: []
+  procedural: []
+evidence: []
+owner: Security
+review_frequency: quarterly
+framework_mappings:
+  pci_dss: ["2.2", "6.5.1"]
+  soc2: ["CC8.1"]
+  nist_800_53: ["CM-2", "CM-3", "CM-6"]
+  iso_27001: ["A.8.9", "A.8.32"]
+  iso_27002: ["8.9", "8.32"]

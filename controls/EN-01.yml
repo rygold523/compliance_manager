@@ -1,0 +1,16 @@
+control_id: EN-01
+title: Encryption and Cryptographic Protection
+domain: Encryption
+description: Encryption and Cryptographic Protection control for compliance readiness.
+implementation:
+  technical: []
+  procedural: []
+evidence: []
+owner: Security
+review_frequency: quarterly
+framework_mappings:
+  pci_dss: ["3.5", "4.2"]
+  soc2: ["CC6.7"]
+  nist_800_53: ["SC-12", "SC-13"]
+  iso_27001: ["A.8.24"]
+  iso_27002: ["8.24"]

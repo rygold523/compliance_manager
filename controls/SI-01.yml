@@ -1,0 +1,16 @@
+control_id: SI-01
+title: Centralized Logging and Monitoring
+domain: Security Monitoring
+description: Centralized Logging and Monitoring control for compliance readiness.
+implementation:
+  technical: []
+  procedural: []
+evidence: []
+owner: Security
+review_frequency: quarterly
+framework_mappings:
+  pci_dss: ["10.2", "10.4", "10.6"]
+  soc2: ["CC7.2", "CC7.3"]
+  nist_800_53: ["AU-6", "SI-4"]
+  iso_27001: ["A.8.15", "A.8.16"]
+  iso_27002: ["8.15", "8.16"]

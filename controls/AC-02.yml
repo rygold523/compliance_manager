@@ -1,0 +1,16 @@
+control_id: AC-02
+title: Identity and Access Management
+domain: Access Control
+description: Identity and Access Management control for compliance readiness.
+implementation:
+  technical: []
+  procedural: []
+evidence: []
+owner: Security
+review_frequency: quarterly
+framework_mappings:
+  pci_dss: ["7.1", "7.2", "8.2"]
+  soc2: ["CC6.1", "CC6.3"]
+  nist_800_53: ["AC-2", "AC-3", "AC-6"]
+  iso_27001: ["A.5.15", "A.5.18"]
+  iso_27002: ["5.15", "5.18"]

@@ -1,0 +1,16 @@
+control_id: AC-01
+title: Multi-Factor Authentication
+domain: Access Control
+description: Multi-Factor Authentication control for compliance readiness.
+implementation:
+  technical: []
+  procedural: []
+evidence: []
+owner: Security
+review_frequency: quarterly
+framework_mappings:
+  pci_dss: ["8.4", "8.5"]
+  soc2: ["CC6.1", "CC6.2"]
+  nist_800_53: ["IA-2", "IA-5"]
+  iso_27001: ["A.5.17"]
+  iso_27002: ["5.17"]
