@@ -27,7 +27,7 @@ compliance-agent ALL=(root) NOPASSWD: /usr/bin/hostnamectl, /usr/bin/lsb_release
 compliance-agent ALL=(root) NOPASSWD: /usr/bin/apt-mark, /usr/bin/apt-cache, /usr/bin/apt, /usr/bin/apt-get, /usr/bin/dpkg, /usr/bin/timedatectl
 compliance-agent ALL=(root) NOPASSWD: /usr/sbin/nginx, /bin/systemctl status nginx, /bin/systemctl reload nginx
 compliance-agent ALL=(root) NOPASSWD: /usr/bin/journalctl, /usr/bin/tail, /usr/bin/grep, /usr/bin/zgrep, /usr/bin/find, /usr/bin/cat
-compliance-agent ALL=(root) NOPASSWD: /usr/sbin/ufw status, /usr/bin/docker ps
+compliance-agent ALL=(root) NOPASSWD: /usr/sbin/ufw status, /usr/sbin/ufw status verbose, /usr/sbin/nft list ruleset, /usr/sbin/iptables -S, /usr/bin/docker ps
 EOF''',
         "sudo chmod 440 /etc/sudoers.d/compliance-agent",
         "sudo visudo -cf /etc/sudoers.d/compliance-agent",

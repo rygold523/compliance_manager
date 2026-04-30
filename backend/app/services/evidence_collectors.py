@@ -48,7 +48,7 @@ COLLECTORS = {
         "frameworks": {"pci_dss": ["6.3.3", "11.3.1"], "soc2": ["CC7.1"], "nist_800_53": ["RA-5", "SI-2"], "iso_27001": ["A.8.8"], "iso_27002": ["8.8"]},
     },
     "firewall_status": {
-        "command": "sudo ufw status verbose",
+        "command": "if command -v ufw >/dev/null 2>&1; then sudo ufw status verbose; elif command -v nft >/dev/null 2>&1; then sudo nft list ruleset; elif command -v iptables >/dev/null 2>&1; then sudo iptables -S; else echo 'NO_FIREWALL_TOOL_FOUND'; fi",
         "control_ids": ["NS-01"],
         "frameworks": {"pci_dss": ["1.2", "1.3"], "soc2": ["CC6.6"], "nist_800_53": ["SC-7"], "iso_27001": ["A.8.20"], "iso_27002": ["8.20"]},
     },
@@ -68,7 +68,7 @@ COLLECTORS = {
         "frameworks": {"pci_dss": ["12.10.1"], "soc2": ["A1.2"], "nist_800_53": ["CP-9"], "iso_27001": ["A.8.13"], "iso_27002": ["8.13"]},
     },
     "docker_inventory": {
-        "command": "sudo docker ps --format '{{json .}}'",
+        "command": "if command -v docker >/dev/null 2>&1; then sudo docker ps --format '{{json .}}'; else echo 'DOCKER_NOT_INSTALLED'; fi",
         "control_ids": ["CM-01", "VM-01"],
         "frameworks": {"pci_dss": ["2.2", "6.3.3"], "soc2": ["CC7.1", "CC8.1"], "nist_800_53": ["CM-8", "RA-5"], "iso_27001": ["A.8.8", "A.8.9"], "iso_27002": ["8.8", "8.9"]},
     },
