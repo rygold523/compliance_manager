@@ -583,3 +583,31 @@ button.danger {
   max-width: 100% !important;
   white-space: normal !important;
 }
+
+.asset-action-select {
+  min-width: 160px;
+  max-width: 180px;
+  padding: 6px 8px;
+}
+
+.table-wrap table {
+  width: 100%;
+}
+
+.table-wrap th,
+.table-wrap td {
+  white-space: nowrap;
+}
+
+.table-wrap td:last-child,
+.table-wrap th:last-child {
+  width: 190px;
+}
+
+.card {
+  overflow: hidden;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}

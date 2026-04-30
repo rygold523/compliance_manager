@@ -487,12 +487,25 @@ function App() {
               { key: "environment", label: "Environment" },
               { key: "agent_status", label: "Agent Status" },
               { key: "actions", label: "Actions", render: r => (
-                <div className="row-actions">
-                  <button onClick={() => runCollectors(r.asset_id)}>Run Collectors</button>
-                  <button onClick={() => openAgentModal("update", r)}>Update Agent</button>
-                  <button onClick={() => openAgentModal("upgrade", r)}>Upgrade Agent</button>
-                  <button className="danger" onClick={() => removeAgent(r.asset_id)}>Remove Agent</button>
-                </div>
+                <select
+                  className="asset-action-select"
+                  defaultValue=""
+                  onChange={e => {
+                    const action = e.target.value;
+                    e.target.value = "";
+
+                    if (action === "collect") runCollectors(r.asset_id);
+                    if (action === "update") openAgentModal("update", r);
+                    if (action === "upgrade") openAgentModal("upgrade", r);
+                    if (action === "remove") removeAgent(r.asset_id);
+                  }}
+                >
+                  <option value="" disabled>Choose action</option>
+                  <option value="collect">Run Collectors</option>
+                  <option value="update">Update Agent</option>
+                  <option value="upgrade">Upgrade Agent</option>
+                  <option value="remove">Remove Agent</option>
+                </select>
               ) }
             ]}
             rows={assets}
