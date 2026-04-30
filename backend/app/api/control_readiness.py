@@ -165,21 +165,46 @@ def get_control_readiness():
             "framework_mappings": control.get("framework_mappings") or {},
         })
 
-    framework_totals = defaultdict(list)
+    # Framework scoring must be framework-specific.
+    # Do not average the same global control list for every framework.
+    # Instead:
+    #   1. Expand each control into its mapped framework requirements.
+    #   2. Score each framework requirement based on mapped control coverage.
+    #   3. Average requirement scores per framework.
+    framework_requirements = defaultdict(lambda: defaultdict(list))
 
     for item in readiness:
-        for framework in (item.get("framework_mappings") or {}).keys():
-            framework_totals[framework].append(item["score"])
+        mappings = item.get("framework_mappings") or {}
+
+        for framework, requirements in mappings.items():
+            if not requirements:
+                framework_requirements[framework]["UNMAPPED"].append(item["score"])
+                continue
+
+            for requirement in requirements:
+                framework_requirements[framework][requirement].append(item["score"])
 
     framework_scores = {}
 
-    for framework, scores in framework_totals.items():
-        score = round(sum(scores) / len(scores), 2) if scores else 0
+    for framework, requirements in framework_requirements.items():
+        requirement_scores = []
+
+        for requirement, scores in requirements.items():
+            if not scores:
+                continue
+
+            # Multiple controls can support one framework requirement.
+            # Use the strongest supporting control score for that requirement.
+            requirement_scores.append(max(scores))
+
+        score = round(sum(requirement_scores) / len(requirement_scores), 2) if requirement_scores else 0
+
         framework_scores[framework] = {
             "label": framework,
             "readiness_score": score,
             "status": "ready" if score >= 90 else "partial" if score >= 50 else "needs_work",
-            "control_count": len(scores),
+            "control_count": len(requirement_scores),
+            "requirement_count": len(requirement_scores),
         }
 
     summary = {
