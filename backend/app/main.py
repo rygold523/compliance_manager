@@ -1,3 +1,4 @@
+from app.api import controls
 from app.api import windows_collectors
 from app.api import remediations
 from app.api import policies
@@ -47,3 +48,5 @@ app.include_router(policies.router)
 app.include_router(remediations.router)
 
 app.include_router(windows_collectors.router)
+
+app.include_router(controls.router)

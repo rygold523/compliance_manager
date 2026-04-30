@@ -7,6 +7,12 @@ import json
 import shutil
 import re
 
+from app.services.control_catalog import (
+    list_controls,
+    suggest_controls,
+    framework_mappings_for_controls,
+)
+
 router = APIRouter(prefix="/api/policies", tags=["policies"])
 
 BASE_DIR = Path("/var/lib/ai-vulnerability-management/policies")
@@ -14,34 +20,6 @@ FILES_DIR = BASE_DIR / "files"
 DB_FILE = BASE_DIR / "policies.json"
 
 FILES_DIR.mkdir(parents=True, exist_ok=True)
-
-CONTROL_KEYWORDS = {
-    "AC-01": ["mfa", "multi-factor", "multifactor", "authentication", "access control", "identity"],
-    "AC-02": ["user access", "account", "login", "password", "privilege", "ssh", "administrator"],
-    "AM-01": ["asset", "inventory", "ownership", "classification"],
-    "CM-01": ["configuration", "baseline", "hardening", "change management", "system configuration"],
-    "CP-01": ["backup", "recovery", "business continuity", "disaster recovery", "restore"],
-    "IR-01": ["incident", "response", "escalation", "security event"],
-    "SI-01": ["logging", "monitoring", "siem", "alert", "audit log"],
-    "VM-01": ["vulnerability", "patch", "remediation", "scan", "cve", "updates"],
-    "NS-01": ["firewall", "network", "segmentation", "ports", "vpn", "traffic"],
-    "EN-01": ["encryption", "tls", "ssl", "certificate", "cryptographic"],
-    "SD-01": ["secure development", "code review", "sdlc", "deployment", "ci/cd"],
-}
-
-FRAMEWORK_MAP = {
-    "AC-01": {"pci_dss": ["8.4"], "soc2": ["CC6.1"], "nist_800_53": ["IA-2"], "iso_27002": ["5.17"]},
-    "AC-02": {"pci_dss": ["8.2", "8.3"], "soc2": ["CC6.2"], "nist_800_53": ["AC-2"], "iso_27002": ["5.18"]},
-    "AM-01": {"pci_dss": ["12.5"], "soc2": ["CC6.1"], "nist_800_53": ["CM-8"], "iso_27002": ["5.9"]},
-    "CM-01": {"pci_dss": ["2.2"], "soc2": ["CC8.1"], "nist_800_53": ["CM-2"], "iso_27002": ["8.9"]},
-    "CP-01": {"pci_dss": ["12.10"], "soc2": ["A1.2"], "nist_800_53": ["CP-9"], "iso_27002": ["5.30"]},
-    "IR-01": {"pci_dss": ["12.10"], "soc2": ["CC7.4"], "nist_800_53": ["IR-4"], "iso_27002": ["5.24"]},
-    "SI-01": {"pci_dss": ["10.2"], "soc2": ["CC7.2"], "nist_800_53": ["AU-6"], "iso_27002": ["8.16"]},
-    "VM-01": {"pci_dss": ["6.3"], "soc2": ["CC7.1"], "nist_800_53": ["RA-5"], "iso_27002": ["8.8"]},
-    "NS-01": {"pci_dss": ["1.2"], "soc2": ["CC6.6"], "nist_800_53": ["SC-7"], "iso_27002": ["8.20"]},
-    "EN-01": {"pci_dss": ["3.5", "4.2"], "soc2": ["CC6.7"], "nist_800_53": ["SC-13"], "iso_27002": ["8.24"]},
-    "SD-01": {"pci_dss": ["6.2"], "soc2": ["CC8.1"], "nist_800_53": ["SA-11"], "iso_27002": ["8.25"]},
-}
 
 
 def now():
@@ -74,28 +52,28 @@ def hash_file(path):
     return h.hexdigest()
 
 
-def map_policy(scope, filename):
-    text = f"{scope or ''} {filename or ''}".lower()
-    mapped_controls = []
-
-    for control_id, keywords in CONTROL_KEYWORDS.items():
-        if any(keyword in text for keyword in keywords):
-            mapped_controls.append(control_id)
-
+def parse_control_selection(mapped_controls):
     if not mapped_controls:
-        mapped_controls = ["AC-02", "CM-01", "SI-01", "VM-01"]
+        return []
 
-    frameworks = {}
-    for control_id in mapped_controls:
-        for framework, refs in FRAMEWORK_MAP.get(control_id, {}).items():
-            frameworks.setdefault(framework, [])
-            for ref in refs:
-                if ref not in frameworks[framework]:
-                    frameworks[framework].append(ref)
+    if isinstance(mapped_controls, list):
+        return sorted(set(mapped_controls))
 
+    try:
+        parsed = json.loads(mapped_controls)
+        if isinstance(parsed, list):
+            return sorted(set(str(item) for item in parsed if item))
+    except Exception:
+        pass
+
+    return sorted(set(part.strip() for part in str(mapped_controls).split(",") if part.strip()))
+
+
+def mappings_for(control_ids):
+    selected = parse_control_selection(control_ids)
     return {
-        "controls": sorted(mapped_controls),
-        "frameworks": frameworks,
+        "controls": selected,
+        "frameworks": framework_mappings_for_controls(selected),
     }
 
 
@@ -104,10 +82,25 @@ def list_policies():
     return load_db()
 
 
+@router.post("/suggest-mappings")
+def suggest_mappings(payload: dict):
+    filename = payload.get("filename", "")
+    scope = payload.get("scope", "")
+
+    suggested = suggest_controls(scope=scope, filename=filename)
+
+    return {
+        "controls": list_controls(),
+        "suggested_control_ids": [item["control_id"] for item in suggested],
+        "suggested_controls": suggested,
+    }
+
+
 @router.post("/upload")
 async def upload_policy(
     file: UploadFile = File(...),
     scope: str = Form(""),
+    mapped_controls: str = Form("[]"),
 ):
     records = load_db()
     original_name = safe_name(file.filename)
@@ -118,7 +111,7 @@ async def upload_policy(
     with stored_path.open("wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    mapping = map_policy(scope, original_name)
+    mapping = mappings_for(mapped_controls)
 
     record = {
         "policy_id": policy_id,
@@ -143,6 +136,7 @@ async def replace_policy(
     policy_id: str,
     file: UploadFile = File(...),
     scope: str = Form(None),
+    mapped_controls: str = Form(None),
 ):
     records = load_db()
 
@@ -159,14 +153,19 @@ async def replace_policy(
             with stored_path.open("wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)
 
+            if scope is not None and scope.strip():
+                record["scope"] = scope
+
+            if mapped_controls is not None:
+                mapping = mappings_for(mapped_controls)
+                record["mapped_controls"] = mapping["controls"]
+                record["mapped_frameworks"] = mapping["frameworks"]
+
             record["filename"] = original_name
             record["stored_filename"] = stored_name
             record["sha256"] = hash_file(stored_path)
             record["size_bytes"] = stored_path.stat().st_size
             record["updated_at"] = now()
-
-            if scope is not None and scope.strip():
-                record["scope"] = scope
 
             save_db(records)
             return record
@@ -174,13 +173,14 @@ async def replace_policy(
     raise HTTPException(status_code=404, detail="Policy not found")
 
 
-@router.post("/{policy_id}/remap")
-def remap_policy(policy_id: str):
+@router.put("/{policy_id}/mappings")
+def update_policy_mappings(policy_id: str, payload: dict):
     records = load_db()
+    selected = payload.get("mapped_controls", [])
 
     for record in records:
         if record["policy_id"] == policy_id:
-            mapping = map_policy(record.get("scope", ""), record.get("filename", ""))
+            mapping = mappings_for(selected)
             record["mapped_controls"] = mapping["controls"]
             record["mapped_frameworks"] = mapping["frameworks"]
             record["updated_at"] = now()
@@ -194,8 +194,8 @@ def remap_policy(policy_id: str):
 def delete_policy(policy_id: str):
     records = load_db()
     remaining = []
-
     deleted = None
+
     for record in records:
         if record["policy_id"] == policy_id:
             deleted = record
@@ -209,6 +209,7 @@ def delete_policy(policy_id: str):
         raise HTTPException(status_code=404, detail="Policy not found")
 
     save_db(remaining)
+
     return {
         "deleted": True,
         "policy_id": policy_id,

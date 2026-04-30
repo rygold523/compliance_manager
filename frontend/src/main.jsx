@@ -37,6 +37,13 @@ function filterStaleFindings(findings, evidence) {
   });
 }
 
+function formatCell(value) {
+  if (value === null || value === undefined) return "";
+  if (Array.isArray(value)) return value.join(", ");
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
 function Section({ title, children }) {
   return (
     <section className="card">
@@ -57,9 +64,9 @@ function DataTable({ columns, rows }) {
           {rows.length === 0 ? (
             <tr><td colSpan={columns.length}>No records found.</td></tr>
           ) : rows.map((row, idx) => (
-            <tr key={row.id || row.evidence_id || row.finding_id || row.asset_id || idx}>
+            <tr key={row.id || row.policy_id || row.evidence_id || row.finding_id || row.asset_id || idx}>
               {columns.map(c => (
-                <td key={c.key}>{c.render ? c.render(row) : row[c.key]}</td>
+                <td key={c.key}>{c.render ? c.render(row) : formatCell(row[c.key])}</td>
               ))}
             </tr>
           ))}
@@ -76,17 +83,21 @@ function App() {
   const [evidence, setEvidence] = useState([]);
   const [modalData, setModalData] = useState(null);
   const [modalTitle, setModalTitle] = useState("");
-  const [policies, setPolicies] = useState([]);
-  const [remediations, setRemediations] = useState([]);
-  const [policyFile, setPolicyFile] = useState(null);
-  const [policyScope, setPolicyScope] = useState("");
-  const [replacePolicyFiles, setReplacePolicyFiles] = useState({});
   const [scores, setScores] = useState({});
   const [environments, setEnvironments] = useState(["all"]);
   const [selectedEnvironment, setSelectedEnvironment] = useState("all");
   const [collectors, setCollectors] = useState([]);
+  const [policies, setPolicies] = useState([]);
+  const [controls, setControls] = useState([]);
+  const [remediations, setRemediations] = useState([]);
+  const [policyFile, setPolicyFile] = useState(null);
+  const [policyScope, setPolicyScope] = useState("");
+  const [replacePolicyFiles, setReplacePolicyFiles] = useState({});
+  const [mappingModal, setMappingModal] = useState(null);
+  const [selectedMappings, setSelectedMappings] = useState({});
   const [chatMessage, setChatMessage] = useState("");
   const [chatResponse, setChatResponse] = useState("");
+
   const emptyAgentForm = {
     asset_id: "",
     hostname: "",
@@ -102,7 +113,7 @@ function App() {
   const [agentForm, setAgentForm] = useState(emptyAgentForm);
 
   async function refresh() {
-    const [h, a, f, e, s, c, env, p, r] = await Promise.all([
+    const [h, a, f, e, s, c, env, p, r, ctrl] = await Promise.all([
       fetch(`${API}/api/health`).then(r => r.json()),
       fetch(`${API}/api/assets/`).then(r => r.json()),
       fetch(`${API}/api/findings/`).then(r => r.json()),
@@ -111,20 +122,22 @@ function App() {
       fetch(`${API}/api/collectors/`).then(r => r.json()),
       fetch(`${API}/api/compliance/environments`).then(r => r.json()),
       fetch(`${API}/api/policies/`).then(r => r.json()).catch(() => []),
-      fetch(`${API}/api/remediations/`).then(r => r.json()).catch(() => [])
+      fetch(`${API}/api/remediations/`).then(r => r.json()).catch(() => []),
+      fetch(`${API}/api/controls/`).then(r => r.json()).catch(() => [])
     ]);
 
-    const filteredFindings = filterStaleFindings(f, e);
+    const filteredFindings = filterStaleFindings(Array.isArray(f) ? f : [], Array.isArray(e) ? e : []);
 
     setHealth(h);
-    setAssets(a);
+    setAssets(Array.isArray(a) ? a : []);
     setFindings(filteredFindings);
-    setEvidence(e);
-    setScores(s);
+    setEvidence(Array.isArray(e) ? e : []);
+    setScores(s || {});
     setCollectors(c.collectors || []);
     setEnvironments(env.environments || ["all"]);
     setPolicies(Array.isArray(p) ? p : []);
     setRemediations(Array.isArray(r) ? r : []);
+    setControls(Array.isArray(ctrl) ? ctrl : []);
   }
 
   async function runCollectors(asset_id) {
@@ -159,17 +172,9 @@ function App() {
   }
 
   async function submitAgentAction() {
-    if (agentMode === "deploy") {
-      return deployAgent();
-    }
-
-    if (agentMode === "update") {
-      return updateAgent();
-    }
-
-    if (agentMode === "upgrade") {
-      return upgradeAgent();
-    }
+    if (agentMode === "deploy") return deployAgent();
+    if (agentMode === "update") return updateAgent();
+    if (agentMode === "upgrade") return upgradeAgent();
   }
 
   async function deployAgent() {
@@ -268,24 +273,152 @@ function App() {
     }
   }
 
-  async function uploadPolicy() {
+  async function openUploadMappingModal() {
     if (!policyFile) {
       alert("Select a policy document first.");
       return;
     }
 
-    const form = new FormData();
-    form.append("file", policyFile);
-    form.append("scope", policyScope);
-
-    const res = await fetch(`${API}/api/policies/upload`, {
+    const suggestion = await fetch(`${API}/api/policies/suggest-mappings`, {
       method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        filename: policyFile.name,
+        scope: policyScope
+      })
+    }).then(r => r.json());
+
+    const selected = {};
+    for (const control of suggestion.controls || controls) {
+      selected[control.control_id] = (suggestion.suggested_control_ids || []).includes(control.control_id);
+    }
+
+    setSelectedMappings(selected);
+    setMappingModal({
+      mode: "upload",
+      title: `Confirm mappings for ${policyFile.name}`,
+      file: policyFile,
+      scope: policyScope,
+      controls: suggestion.controls || controls
+    });
+  }
+
+  async function openReplaceMappingModal(policy) {
+    const file = replacePolicyFiles[policy.policy_id];
+
+    if (!file) {
+      alert("Select a replacement file first.");
+      return;
+    }
+
+    const selected = {};
+    for (const control of controls) {
+      selected[control.control_id] = (policy.mapped_controls || []).includes(control.control_id);
+    }
+
+    setSelectedMappings(selected);
+    setMappingModal({
+      mode: "replace",
+      title: `Confirm mappings for replacement: ${policy.filename}`,
+      policy_id: policy.policy_id,
+      file,
+      scope: policy.scope || "",
+      controls
+    });
+  }
+
+  async function resuggestPolicyMappings() {
+    if (!mappingModal) return;
+
+    const suggestion = await fetch(`${API}/api/policies/suggest-mappings`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        filename: mappingModal.file?.name || "",
+        scope: mappingModal.scope || ""
+      })
+    }).then(r => r.json());
+
+    const selected = {};
+    for (const control of suggestion.controls || controls) {
+      selected[control.control_id] = (suggestion.suggested_control_ids || []).includes(control.control_id);
+    }
+
+    setSelectedMappings(selected);
+    setMappingModal({
+      ...mappingModal,
+      controls: suggestion.controls || controls
+    });
+  }
+
+  function selectedControlIds() {
+    return Object.entries(selectedMappings)
+      .filter(([, value]) => value === true)
+      .map(([key]) => key);
+  }
+
+  async function confirmPolicyMapping() {
+    if (!mappingModal) return;
+
+    const form = new FormData();
+    form.append("file", mappingModal.file);
+    form.append("scope", mappingModal.scope || "");
+    form.append("mapped_controls", JSON.stringify(selectedControlIds()));
+
+    let url = `${API}/api/policies/upload`;
+    let method = "POST";
+
+    if (mappingModal.mode === "replace") {
+      url = `${API}/api/policies/${mappingModal.policy_id}/replace`;
+      method = "PUT";
+    }
+
+    const res = await fetch(url, {
+      method,
       body: form
     }).then(r => r.json());
 
     alert(JSON.stringify(res, null, 2));
+
     setPolicyFile(null);
     setPolicyScope("");
+    setMappingModal(null);
+    setSelectedMappings({});
+    setReplacePolicyFiles({ ...replacePolicyFiles, [mappingModal.policy_id]: null });
+
+    await refresh();
+  }
+
+  async function editExistingPolicyMappings(policy) {
+    const selected = {};
+    for (const control of controls) {
+      selected[control.control_id] = (policy.mapped_controls || []).includes(control.control_id);
+    }
+
+    setSelectedMappings(selected);
+    setMappingModal({
+      mode: "edit",
+      title: `Edit mappings for ${policy.filename}`,
+      policy_id: policy.policy_id,
+      controls
+    });
+  }
+
+  async function confirmExistingPolicyMappingEdit() {
+    if (!mappingModal) return;
+
+    const res = await fetch(`${API}/api/policies/${mappingModal.policy_id}/mappings`, {
+      method: "PUT",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        mapped_controls: selectedControlIds()
+      })
+    }).then(r => r.json());
+
+    alert(JSON.stringify(res, null, 2));
+
+    setMappingModal(null);
+    setSelectedMappings({});
     await refresh();
   }
 
@@ -299,27 +432,6 @@ function App() {
     }).then(r => r.json());
 
     alert(JSON.stringify(res, null, 2));
-    await refresh();
-  }
-
-  async function replacePolicy(policyId) {
-    const file = replacePolicyFiles[policyId];
-
-    if (!file) {
-      alert("Select a replacement file first.");
-      return;
-    }
-
-    const form = new FormData();
-    form.append("file", file);
-
-    const res = await fetch(`${API}/api/policies/${policyId}/replace`, {
-      method: "PUT",
-      body: form
-    }).then(r => r.json());
-
-    alert(JSON.stringify(res, null, 2));
-    setReplacePolicyFiles({ ...replacePolicyFiles, [policyId]: null });
     await refresh();
   }
 
@@ -398,7 +510,7 @@ function App() {
             </button>
           ))}
         </Section>
-        
+
         <Section title={`Current Evidence (${evidence.length})`}>
           {Object.entries(groupByAsset(evidence)).map(([asset, items]) => (
             <button
@@ -411,9 +523,9 @@ function App() {
             >
               {asset} ({items.length})
             </button>
-         ))}
+          ))}
         </Section>
-        
+
         <Section title={`Policies (${policies.length})`}>
           <div className="section-actions policy-upload">
             <input
@@ -425,7 +537,7 @@ function App() {
               onChange={e => setPolicyScope(e.target.value)}
               placeholder="Policy scope: access control, logging, vulnerability management, incident response..."
             />
-            <button onClick={uploadPolicy}>Upload Policy</button>
+            <button onClick={openUploadMappingModal}>Select / Confirm Mappings</button>
           </div>
 
           <DataTable
@@ -439,11 +551,12 @@ function App() {
               { key: "actions", label: "Actions", render: r => (
                 <div className="row-actions">
                   <a href={`${API}/api/policies/${r.policy_id}/download`} target="_blank">Download</a>
+                  <button onClick={() => editExistingPolicyMappings(r)}>Edit Mappings</button>
                   <input
                     type="file"
                     onChange={e => setReplacePolicyFiles({ ...replacePolicyFiles, [r.policy_id]: e.target.files[0] || null })}
                   />
-                  <button onClick={() => replacePolicy(r.policy_id)}>Replace</button>
+                  <button onClick={() => openReplaceMappingModal(r)}>Replace</button>
                   <button className="danger" onClick={() => deletePolicy(r.policy_id)}>Remove</button>
                 </div>
               ) }
@@ -469,6 +582,18 @@ function App() {
               ) }
             ]}
             rows={remediations}
+          />
+        </Section>
+
+        <Section title={`Controls (${controls.length})`}>
+          <DataTable
+            columns={[
+              { key: "control_id", label: "Control ID" },
+              { key: "title", label: "Title" },
+              { key: "domain", label: "Domain" },
+              { key: "framework_mappings", label: "Frameworks", render: r => Object.keys(r.framework_mappings || {}).join(", ") }
+            ]}
+            rows={controls}
           />
         </Section>
 
@@ -535,6 +660,78 @@ function App() {
           </div>
         </div>
       )}
+
+      {mappingModal && (
+        <div className="modal-backdrop">
+          <div className="modal large-modal">
+            <div className="modal-header">
+              <h2>{mappingModal.title}</h2>
+              <button className="secondary" onClick={() => setMappingModal(null)}>Close</button>
+            </div>
+
+            <p className="modal-note">
+              Confirm the controls this policy supports. Automatic suggestions are only a starting point; the selected controls are what will be saved.
+            </p>
+
+            <div className="modal-actions">
+              {mappingModal.mode !== "edit" && (
+                <button className="secondary" onClick={resuggestPolicyMappings}>Re-suggest From Scope</button>
+              )}
+              <button
+                className="secondary"
+                onClick={() => {
+                  const next = {};
+                  for (const control of mappingModal.controls || controls) {
+                    next[control.control_id] = true;
+                  }
+                  setSelectedMappings(next);
+                }}
+              >
+                Select All
+              </button>
+              <button
+                className="secondary"
+                onClick={() => {
+                  const next = {};
+                  for (const control of mappingModal.controls || controls) {
+                    next[control.control_id] = false;
+                  }
+                  setSelectedMappings(next);
+                }}
+              >
+                Clear All
+              </button>
+            </div>
+
+            <div className="mapping-list">
+              {(mappingModal.controls || controls).map(control => (
+                <label key={control.control_id} className="mapping-row">
+                  <input
+                    type="checkbox"
+                    checked={selectedMappings[control.control_id] === true}
+                    onChange={e => setSelectedMappings({
+                      ...selectedMappings,
+                      [control.control_id]: e.target.checked
+                    })}
+                  />
+                  <span>
+                    <strong>{control.control_id}</strong> — {control.title}
+                    {control.domain ? <em> ({control.domain})</em> : null}
+                  </span>
+                </label>
+              ))}
+            </div>
+
+            <div className="modal-actions">
+              <button onClick={mappingModal.mode === "edit" ? confirmExistingPolicyMappingEdit : confirmPolicyMapping}>
+                Save Confirmed Mappings
+              </button>
+              <button className="secondary" onClick={() => setMappingModal(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {modalData && (
         <div style={{
           position: "fixed",
@@ -578,7 +775,7 @@ function App() {
                   <tr key={idx}>
                     {Object.values(row).map((val, i) => (
                       <td key={i} style={{ padding: "8px" }}>
-                        {String(val)}
+                        {formatCell(val)}
                       </td>
                     ))}
                   </tr>
