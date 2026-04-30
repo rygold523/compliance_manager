@@ -4,6 +4,7 @@ from app.api.assets import router as assets_router
 from app.api.findings import router as findings_router
 from app.api.approvals import router as approvals_router
 from app.api.evidence import router as evidence_router
+from app.api.evidence_analysis import router as evidence_analysis_router
 from app.api.chat import router as chat_router
 from app.api.remote_exec import router as remote_exec_router
 from app.api.ai_analysis import router as ai_analysis_router
@@ -24,6 +25,7 @@ app.include_router(assets_router, prefix="/api/assets", tags=["Assets"])
 app.include_router(findings_router, prefix="/api/findings", tags=["Findings"])
 app.include_router(approvals_router, prefix="/api/approvals", tags=["Approvals"])
 app.include_router(evidence_router, prefix="/api/evidence", tags=["Evidence"])
+app.include_router(evidence_analysis_router, prefix="/api/evidence-analysis", tags=["Evidence Analysis"])
 app.include_router(chat_router, prefix="/api/chat", tags=["Chat"])
 app.include_router(remote_exec_router, prefix="/api/remote-exec", tags=["Remote Execution"])
 app.include_router(ai_analysis_router, prefix="/api/ai", tags=["AI Analysis"])
