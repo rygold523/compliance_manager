@@ -23,6 +23,8 @@ FRAMEWORK_ALIASES = {
     "nist-800-53": "nist_800_53",
     "nist_800_53": "nist_800_53",
     "iso": "iso_27002",
+    "iso-27001": "iso_27001",
+    "iso_27001": "iso_27001",
     "iso-27002": "iso_27002",
     "iso_27002": "iso_27002",
 }
@@ -208,15 +210,18 @@ def build_requirement_rows(framework):
     requirements = defaultdict(list)
 
     for control in controls:
-        mappings = control.get("framework_mappings") or {}
+        mappings = dict(control.get("framework_mappings") or {})
+        if "iso_27001" not in mappings and "iso_27002" in mappings:
+            mappings["iso_27001"] = mappings["iso_27002"]
         refs = mappings.get(framework) or []
 
         for ref in refs:
+            ref = str(ref)
             requirements[ref].append(control)
 
     rows = []
 
-    for requirement, mapped_controls in sorted(requirements.items()):
+    for requirement, mapped_controls in sorted(requirements.items(), key=lambda item: str(item[0])):
         control_rows = []
 
         requirement_has_valid_evidence = False
