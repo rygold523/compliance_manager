@@ -1,0 +1,22 @@
+control_id: AC-02
+title: Centralized Identity and Access Management
+domain: Access Control
+description: >
+  Identity and access management is centrally governed to ensure that user
+  accounts, authentication, privileged access, and access assignments are
+  managed consistently across in-scope systems.
+framework_mappings:
+  pci_dss:
+    - "7.2"
+    - "8.2"
+    - "8.3"
+  soc2:
+    - "CC6.1"
+    - "CC6.2"
+  nist_800_53:
+    - "AC-2"
+    - "IA-2"
+  iso_27002:
+    - "5.16"
+    - "5.17"
+    - "5.18"
