@@ -4,6 +4,15 @@ import "./style.css";
 
 const API = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
+function groupByAsset(items) {
+  return items.reduce((acc, item) => {
+    const asset = item.asset || item.asset_id || "unknown";
+    if (!acc[asset]) acc[asset] = [];
+    acc[asset].push(item);
+    return acc;
+  }, {});
+}
+
 function Section({ title, children }) {
   return (
     <section className="card">
@@ -41,6 +50,8 @@ function App() {
   const [assets, setAssets] = useState([]);
   const [findings, setFindings] = useState([]);
   const [evidence, setEvidence] = useState([]);
+  const [modalData, setModalData] = useState(null);
+  const [modalTitle, setModalTitle] = useState("");
   const [scores, setScores] = useState({});
   const [environments, setEnvironments] = useState(["all"]);
   const [selectedEnvironment, setSelectedEnvironment] = useState("all");
@@ -284,33 +295,35 @@ function App() {
         </Section>
 
         <Section title={`Current Findings (${findings.length})`}>
-          <DataTable
-            columns={[
-              { key: "finding_id", label: "Finding ID" },
-              { key: "asset_id", label: "Asset" },
-              { key: "severity", label: "Severity" },
-              { key: "control_id", label: "Control" },
-              { key: "status", label: "Status" },
-              { key: "title", label: "Title" }
-            ]}
-            rows={findings}
-          />
+          {Object.entries(groupByAsset(findings)).map(([asset, items]) => (
+            <button
+              key={asset}
+              style={{ display: "block", marginBottom: "10px" }}
+              onClick={() => {
+                setModalTitle(`Findings for ${asset}`);
+                setModalData(items);
+              }}
+            >
+              {asset} ({items.length})
+            </button>
+          ))}
         </Section>
-
+        
         <Section title={`Current Evidence (${evidence.length})`}>
-          <DataTable
-            columns={[
-              { key: "evidence_id", label: "Evidence ID" },
-              { key: "asset_id", label: "Asset" },
-              { key: "collector", label: "Collector" },
-              { key: "control_id", label: "Control" },
-              { key: "validated", label: "Validated", render: r => r.validated ? "Yes" : "No" },
-              { key: "created_at", label: "Created" }
-            ]}
-            rows={evidence}
-          />
+          {Object.entries(groupByAsset(evidence)).map(([asset, items]) => (
+            <button
+              key={asset}
+              style={{ display: "block", marginBottom: "10px" }}
+              onClick={() => {
+                setModalTitle(`Evidence for ${asset}`);
+                setModalData(items);
+              }}
+            >
+              {asset} ({items.length})
+            </button>
+         ))}
         </Section>
-
+        
         <Section title={`Collectors (${collectors.length})`}>
           <DataTable
             columns={[
@@ -371,6 +384,59 @@ function App() {
               <button onClick={submitAgentAction}>{agentMode === "deploy" ? "Deploy Agent" : agentMode === "update" ? "Update Agent" : "Upgrade Agent"}</button>
               <button className="secondary" onClick={() => setShowDeployModal(false)}>Cancel</button>
             </div>
+          </div>
+        </div>
+      )}
+      {modalData && (
+        <div style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: "rgba(0,0,0,0.5)",
+          zIndex: 1000
+        }}>
+          <div style={{
+            background: "#fff",
+            margin: "5% auto",
+            padding: "20px",
+            width: "90%",
+            maxHeight: "80%",
+            overflow: "auto",
+            borderRadius: "8px"
+          }}>
+            <h2>{modalTitle}</h2>
+
+            <button
+              onClick={() => setModalData(null)}
+              style={{ marginBottom: "15px" }}
+            >
+              Close
+            </button>
+
+            <table border="1" width="100%" style={{ borderCollapse: "collapse" }}>
+              <thead>
+                <tr>
+                  {Object.keys(modalData[0] || {}).map(key => (
+                    <th key={key} style={{ padding: "8px", background: "#f0f0f0" }}>
+                      {key}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {modalData.map((row, idx) => (
+                  <tr key={idx}>
+                    {Object.values(row).map((val, i) => (
+                      <td key={i} style={{ padding: "8px" }}>
+                        {String(val)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
