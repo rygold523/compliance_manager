@@ -1,3 +1,6 @@
+from app.api import windows_collectors
+from app.api import remediations
+from app.api import policies
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.assets import router as assets_router
@@ -38,3 +41,9 @@ app.include_router(scanners_router, prefix="/api/scanners", tags=["Scanners"])
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+app.include_router(policies.router)
+
+app.include_router(remediations.router)
+
+app.include_router(windows_collectors.router)

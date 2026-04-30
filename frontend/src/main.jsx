@@ -76,6 +76,11 @@ function App() {
   const [evidence, setEvidence] = useState([]);
   const [modalData, setModalData] = useState(null);
   const [modalTitle, setModalTitle] = useState("");
+  const [policies, setPolicies] = useState([]);
+  const [remediations, setRemediations] = useState([]);
+  const [policyFile, setPolicyFile] = useState(null);
+  const [policyScope, setPolicyScope] = useState("");
+  const [replacePolicyFiles, setReplacePolicyFiles] = useState({});
   const [scores, setScores] = useState({});
   const [environments, setEnvironments] = useState(["all"]);
   const [selectedEnvironment, setSelectedEnvironment] = useState("all");
@@ -97,14 +102,16 @@ function App() {
   const [agentForm, setAgentForm] = useState(emptyAgentForm);
 
   async function refresh() {
-    const [h, a, f, e, s, c, env] = await Promise.all([
+    const [h, a, f, e, s, c, env, p, r] = await Promise.all([
       fetch(`${API}/api/health`).then(r => r.json()),
       fetch(`${API}/api/assets/`).then(r => r.json()),
       fetch(`${API}/api/findings/`).then(r => r.json()),
       fetch(`${API}/api/evidence/`).then(r => r.json()),
       fetch(`${API}/api/compliance/score?environment=${selectedEnvironment}`).then(r => r.json()),
       fetch(`${API}/api/collectors/`).then(r => r.json()),
-      fetch(`${API}/api/compliance/environments`).then(r => r.json())
+      fetch(`${API}/api/compliance/environments`).then(r => r.json()),
+      fetch(`${API}/api/policies/`).then(r => r.json()).catch(() => []),
+      fetch(`${API}/api/remediations/`).then(r => r.json()).catch(() => [])
     ]);
 
     const filteredFindings = filterStaleFindings(f, e);
@@ -116,6 +123,8 @@ function App() {
     setScores(s);
     setCollectors(c.collectors || []);
     setEnvironments(env.environments || ["all"]);
+    setPolicies(Array.isArray(p) ? p : []);
+    setRemediations(Array.isArray(r) ? r : []);
   }
 
   async function runCollectors(asset_id) {
@@ -259,6 +268,61 @@ function App() {
     }
   }
 
+  async function uploadPolicy() {
+    if (!policyFile) {
+      alert("Select a policy document first.");
+      return;
+    }
+
+    const form = new FormData();
+    form.append("file", policyFile);
+    form.append("scope", policyScope);
+
+    const res = await fetch(`${API}/api/policies/upload`, {
+      method: "POST",
+      body: form
+    }).then(r => r.json());
+
+    alert(JSON.stringify(res, null, 2));
+    setPolicyFile(null);
+    setPolicyScope("");
+    await refresh();
+  }
+
+  async function deletePolicy(policyId) {
+    if (!confirm(`Delete policy ${policyId}? This will remove its control mappings.`)) {
+      return;
+    }
+
+    const res = await fetch(`${API}/api/policies/${policyId}`, {
+      method: "DELETE"
+    }).then(r => r.json());
+
+    alert(JSON.stringify(res, null, 2));
+    await refresh();
+  }
+
+  async function replacePolicy(policyId) {
+    const file = replacePolicyFiles[policyId];
+
+    if (!file) {
+      alert("Select a replacement file first.");
+      return;
+    }
+
+    const form = new FormData();
+    form.append("file", file);
+
+    const res = await fetch(`${API}/api/policies/${policyId}/replace`, {
+      method: "PUT",
+      body: form
+    }).then(r => r.json());
+
+    alert(JSON.stringify(res, null, 2));
+    setReplacePolicyFiles({ ...replacePolicyFiles, [policyId]: null });
+    await refresh();
+  }
+
   useEffect(() => { refresh(); }, [selectedEnvironment]);
 
   return (
@@ -350,6 +414,64 @@ function App() {
          ))}
         </Section>
         
+        <Section title={`Policies (${policies.length})`}>
+          <div className="section-actions policy-upload">
+            <input
+              type="file"
+              onChange={e => setPolicyFile(e.target.files[0] || null)}
+            />
+            <input
+              value={policyScope}
+              onChange={e => setPolicyScope(e.target.value)}
+              placeholder="Policy scope: access control, logging, vulnerability management, incident response..."
+            />
+            <button onClick={uploadPolicy}>Upload Policy</button>
+          </div>
+
+          <DataTable
+            columns={[
+              { key: "policy_id", label: "Policy ID" },
+              { key: "filename", label: "Document" },
+              { key: "scope", label: "Scope" },
+              { key: "mapped_controls", label: "Mapped Controls", render: r => (r.mapped_controls || []).join(", ") },
+              { key: "mapped_frameworks", label: "Mapped Frameworks", render: r => Object.keys(r.mapped_frameworks || {}).join(", ") },
+              { key: "updated_at", label: "Updated" },
+              { key: "actions", label: "Actions", render: r => (
+                <div className="row-actions">
+                  <a href={`${API}/api/policies/${r.policy_id}/download`} target="_blank">Download</a>
+                  <input
+                    type="file"
+                    onChange={e => setReplacePolicyFiles({ ...replacePolicyFiles, [r.policy_id]: e.target.files[0] || null })}
+                  />
+                  <button onClick={() => replacePolicy(r.policy_id)}>Replace</button>
+                  <button className="danger" onClick={() => deletePolicy(r.policy_id)}>Remove</button>
+                </div>
+              ) }
+            ]}
+            rows={policies}
+          />
+        </Section>
+
+        <Section title={`Remediations / Suggestions (${remediations.reduce((sum, item) => sum + item.count, 0)})`}>
+          <DataTable
+            columns={[
+              { key: "asset_id", label: "Asset" },
+              { key: "count", label: "Remediations / Suggestions" },
+              { key: "details", label: "Details", render: r => (
+                <button
+                  onClick={() => {
+                    setModalTitle(`Remediations for ${r.asset_id}`);
+                    setModalData(r.remediations || []);
+                  }}
+                >
+                  Expanded View
+                </button>
+              ) }
+            ]}
+            rows={remediations}
+          />
+        </Section>
+
         <Section title={`Collectors (${collectors.length})`}>
           <DataTable
             columns={[

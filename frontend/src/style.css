@@ -180,3 +180,25 @@ button.danger {
   width: auto;
   min-width: 140px;
 }
+
+.policy-upload {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(320px, 2fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.policy-upload input[type="text"],
+.policy-upload input:not([type]) {
+  width: 100%;
+}
+
+.row-actions input[type="file"] {
+  max-width: 220px;
+}
+
+@media (max-width: 900px) {
+  .policy-upload {
+    grid-template-columns: 1fr;
+  }
+}
