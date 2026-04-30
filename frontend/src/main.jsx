@@ -45,6 +45,19 @@ function App() {
   const [collectors, setCollectors] = useState([]);
   const [chatMessage, setChatMessage] = useState("");
   const [chatResponse, setChatResponse] = useState("");
+  const emptyAgentForm = {
+    asset_id: "",
+    hostname: "",
+    address: "",
+    username: "",
+    password: "",
+    port: 22,
+    environment: "test"
+  };
+
+  const [showDeployModal, setShowDeployModal] = useState(false);
+  const [agentMode, setAgentMode] = useState("deploy");
+  const [agentForm, setAgentForm] = useState(emptyAgentForm);
 
   async function refresh() {
     const [h, a, f, e, s, c] = await Promise.all([
@@ -69,6 +82,113 @@ function App() {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({ asset_id })
+    }).then(r => r.json());
+
+    alert(JSON.stringify(res, null, 2));
+    await refresh();
+  }
+
+  function openAgentModal(mode, asset = null) {
+    setAgentMode(mode);
+
+    if (mode === "deploy") {
+      setAgentForm({ ...emptyAgentForm });
+    } else {
+      setAgentForm({
+        asset_id: asset?.asset_id || "",
+        hostname: asset?.hostname || "",
+        address: asset?.address || "",
+        username: "",
+        password: "",
+        port: asset?.ssh_port || 22,
+        environment: asset?.environment || "test"
+      });
+    }
+
+    setShowDeployModal(true);
+  }
+
+  async function submitAgentAction() {
+    if (agentMode === "deploy") {
+      return deployAgent();
+    }
+
+    if (agentMode === "update") {
+      return updateAgent();
+    }
+
+    if (agentMode === "upgrade") {
+      return upgradeAgent();
+    }
+  }
+
+  async function deployAgent() {
+    const payload = {
+      ...agentForm,
+      port: Number(agentForm.port),
+      role: ["ubuntu", "managed_target"],
+      compliance_scope: ["pci_dss", "soc2", "nist_800_53", "iso_27001", "iso_27002"]
+    };
+
+    const res = await fetch(`${API}/api/agents/deploy`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(payload)
+    }).then(r => r.json());
+
+    alert(JSON.stringify(res, null, 2));
+    setShowDeployModal(false);
+    setAgentForm({ ...emptyAgentForm });
+    await refresh();
+  }
+
+  async function updateAgent() {
+    const payload = {
+      ...agentForm,
+      port: Number(agentForm.port),
+      role: ["ubuntu", "managed_target"],
+      compliance_scope: ["pci_dss", "soc2", "nist_800_53", "iso_27001", "iso_27002"]
+    };
+
+    const res = await fetch(`${API}/api/agents/${agentForm.asset_id}`, {
+      method: "PUT",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(payload)
+    }).then(r => r.json());
+
+    alert(JSON.stringify(res, null, 2));
+    setShowDeployModal(false);
+    setAgentForm({ ...emptyAgentForm });
+    await refresh();
+  }
+
+  async function upgradeAgent() {
+    const payload = {
+      ...agentForm,
+      port: Number(agentForm.port),
+      role: ["ubuntu", "managed_target"],
+      compliance_scope: ["pci_dss", "soc2", "nist_800_53", "iso_27001", "iso_27002"]
+    };
+
+    const res = await fetch(`${API}/api/agents/${agentForm.asset_id}/upgrade`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(payload)
+    }).then(r => r.json());
+
+    alert(JSON.stringify(res, null, 2));
+    setShowDeployModal(false);
+    setAgentForm({ ...emptyAgentForm });
+    await refresh();
+  }
+
+  async function removeAgent(asset_id) {
+    if (!confirm(`Remove compliance agent from ${asset_id}? Existing evidence and findings will be retained.`)) {
+      return;
+    }
+
+    const res = await fetch(`${API}/api/agents/${asset_id}`, {
+      method: "DELETE"
     }).then(r => r.json());
 
     alert(JSON.stringify(res, null, 2));
@@ -129,6 +249,10 @@ function App() {
         </Section>
 
         <Section title={`Assets (${assets.length})`}>
+          <div className="section-actions">
+            <button onClick={() => openAgentModal("deploy")}>Deploy Agent</button>
+          </div>
+
           <DataTable
             columns={[
               { key: "asset_id", label: "Asset ID" },
@@ -136,7 +260,14 @@ function App() {
               { key: "address", label: "Address" },
               { key: "environment", label: "Environment" },
               { key: "agent_status", label: "Agent Status" },
-              { key: "actions", label: "Actions", render: r => <button onClick={() => runCollectors(r.asset_id)}>Run Collectors</button> }
+              { key: "actions", label: "Actions", render: r => (
+                <div className="row-actions">
+                  <button onClick={() => runCollectors(r.asset_id)}>Run Collectors</button>
+                  <button onClick={() => openAgentModal("update", r)}>Update Agent</button>
+                  <button onClick={() => openAgentModal("upgrade", r)}>Upgrade Agent</button>
+                  <button className="danger" onClick={() => removeAgent(r.asset_id)}>Remove Agent</button>
+                </div>
+              ) }
             ]}
             rows={assets}
           />
@@ -186,6 +317,53 @@ function App() {
           <pre>{chatResponse}</pre>
         </Section>
       </div>
+
+      {showDeployModal && (
+        <div className="modal-backdrop">
+          <div className="modal">
+            <div className="modal-header">
+              <h2>{agentMode === "deploy" ? "Deploy Agent" : agentMode === "update" ? "Update Agent" : "Upgrade Agent"}</h2>
+              <button className="secondary" onClick={() => setShowDeployModal(false)}>Close</button>
+            </div>
+
+            <p className="modal-note">
+              Enter temporary SSH credentials for this action. Passwords are never stored by the platform. Deploy installs the compliance-agent key, Update changes host metadata, and Upgrade redeploys the current agent while retaining existing findings, evidence, and mappings.
+            </p>
+
+            <label>Asset ID</label>
+            <input value={agentForm.asset_id} onChange={e => setAgentForm({...agentForm, asset_id: e.target.value})} placeholder="test_vm" />
+
+            <label>Hostname</label>
+            <input value={agentForm.hostname} onChange={e => setAgentForm({...agentForm, hostname: e.target.value})} placeholder="testing" />
+
+            <label>Hostname/IP Address</label>
+            <input value={agentForm.address} onChange={e => setAgentForm({...agentForm, address: e.target.value})} placeholder="192.168.1.124" />
+
+            <label>SSH Username</label>
+            <input value={agentForm.username} onChange={e => setAgentForm({...agentForm, username: e.target.value})} placeholder="test" />
+
+            <label>SSH Password</label>
+            <input type="password" value={agentForm.password} onChange={e => setAgentForm({...agentForm, password: e.target.value})} />
+
+            <label>SSH Port</label>
+            <input value={agentForm.port} onChange={e => setAgentForm({...agentForm, port: e.target.value})} placeholder="22" />
+
+            <label>Environment</label>
+            <select value={agentForm.environment} onChange={e => setAgentForm({...agentForm, environment: e.target.value})}>
+              <option value="test">test</option>
+              <option value="dev">dev</option>
+              <option value="qa">qa</option>
+              <option value="staging">staging</option>
+              <option value="production">production</option>
+            </select>
+
+            <div className="modal-actions">
+              <button onClick={submitAgentAction}>{agentMode === "deploy" ? "Deploy Agent" : agentMode === "update" ? "Update Agent" : "Upgrade Agent"}</button>
+              <button className="secondary" onClick={() => setShowDeployModal(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

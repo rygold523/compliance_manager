@@ -16,6 +16,7 @@ ALLOWED_PREFIXES = [
     "sudo systemctl status nginx", "sudo systemctl reload nginx", "sudo journalctl",
     "sudo tail", "sudo grep", "sudo find", "sudo cat", "sudo ufw status",
     "sudo docker ps", "grep",
+    "sudo userdel compliance-agent",
 ]
 
 
