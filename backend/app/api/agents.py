@@ -145,7 +145,7 @@ def deploy(payload: AgentDeployRequest, db: Session = Depends(get_db)):
     db.refresh(existing)
 
     collection_result = None
-    if result["status"] == "deployed":
+    if result.get("status") in ["deployed", "upgraded:deployed"] or "deployed" in str(result.get("status", "")):
         collection_result = run_initial_collection(db, existing)
 
     return {
@@ -220,7 +220,7 @@ def upgrade_agent(asset_id: str, payload: AgentDeployRequest, db: Session = Depe
     db.refresh(asset)
 
     collection_result = None
-    if result["status"] == "deployed":
+    if result.get("status") in ["deployed", "upgraded:deployed"] or "deployed" in str(result.get("status", "")):
         collection_result = run_initial_collection(db, asset)
 
     return {
