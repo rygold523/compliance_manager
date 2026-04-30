@@ -573,21 +573,34 @@ function App() {
             columns={[
               { key: "policy_id", label: "Policy ID" },
               { key: "filename", label: "Document" },
-              { key: "scope", label: "Scope" },
-              { key: "mapped_controls", label: "Mapped Controls", render: r => (r.mapped_controls || []).join(", ") },
-              { key: "mapped_frameworks", label: "Mapped Frameworks", render: r => Object.keys(r.mapped_frameworks || {}).join(", ") },
-              { key: "updated_at", label: "Updated" },
+              { key: "mapped_controls", label: "Controls", render: r => (r.mapped_controls || []).join(", ") },
+              { key: "mapped_frameworks", label: "Frameworks", render: r => Object.keys(r.mapped_frameworks || {}).join(", ") },
               { key: "actions", label: "Actions", render: r => (
-                <div className="row-actions">
-                  <a href={`${API}/api/policies/${r.policy_id}/download`} target="_blank">Download</a>
-                  <button onClick={() => editExistingPolicyMappings(r)}>Edit Mappings</button>
-                  <input
-                    type="file"
-                    onChange={e => setReplacePolicyFiles({ ...replacePolicyFiles, [r.policy_id]: e.target.files[0] || null })}
-                  />
-                  <button onClick={() => openReplaceMappingModal(r)}>Replace / Confirm Mappings</button>
-                  <button className="danger" onClick={() => deletePolicy(r.policy_id)}>Remove</button>
-                </div>
+                <select
+                  className="asset-action-select"
+                  defaultValue=""
+                  onChange={e => {
+                    const action = e.target.value;
+                    e.target.value = "";
+
+                    if (action === "download") window.open(`${API}/api/policies/${r.policy_id}/download`, "_blank");
+                    if (action === "edit") editExistingPolicyMappings(r);
+                    if (action === "replace") {
+                      alert("Choose the replacement file in the row file selector first, then run Replace.");
+                    }
+                    if (action === "remove") deletePolicy(r.policy_id);
+                    if (action === "details") {
+                      setModalTitle(`Policy Details: ${r.filename}`);
+                      setModalData([r]);
+                    }
+                  }}
+                >
+                  <option value="" disabled>Choose action</option>
+                  <option value="details">View Details</option>
+                  <option value="download">Download</option>
+                  <option value="edit">Edit Mappings</option>
+                  <option value="remove">Remove</option>
+                </select>
               ) }
             ]}
             rows={policies}
@@ -660,9 +673,19 @@ function App() {
           <DataTable
             columns={[
               { key: "name", label: "Collector" },
-              { key: "control_ids", label: "Control IDs", render: r => (r.control_ids || []).join(", ") },
-              { key: "mapped_controls", label: "Catalog Mappings", render: r => (r.mapped_controls || []).map(c => `${c.control_id}: ${c.title}`).join("; ") },
-              { key: "unmapped_control_ids", label: "Unmapped", render: r => (r.unmapped_control_ids || []).join(", ") || "None" }
+              { key: "control_ids", label: "Controls", render: r => (r.control_ids || []).join(", ") },
+              { key: "mapped_controls", label: "Mapped", render: r => (r.mapped_controls || []).length },
+              { key: "unmapped_control_ids", label: "Unmapped", render: r => (r.unmapped_control_ids || []).join(", ") || "None" },
+              { key: "details", label: "Details", render: r => (
+                <button
+                  onClick={() => {
+                    setModalTitle(`Collector Mapping: ${r.name}`);
+                    setModalData(r.mapped_controls || []);
+                  }}
+                >
+                  View
+                </button>
+              ) }
             ]}
             rows={collectors}
           />
