@@ -7,8 +7,69 @@ from app.models import Asset, AgentDeployment
 from app.schemas.schemas import AgentDeployRequest
 from app.services.agent_deployer import deploy_agent
 from app.services.remote_executor import run_ssh_command
+from app.services.evidence_collectors import run_collector, COLLECTORS
+from app.services.evidence_finding_analyzer import analyze_all_evidence
+from app.models import Evidence, CollectorRun
+from app.core.config import settings
+
+from pathlib import Path
+import json
 
 router = APIRouter()
+
+
+def run_initial_collection(db: Session, asset: Asset):
+    results = []
+
+    for collector_name in COLLECTORS.keys():
+        run_id = f"COL-{uuid4().hex[:12].upper()}"
+        output = run_collector(asset, collector_name)
+
+        db.add(CollectorRun(
+            run_id=run_id,
+            asset_id=asset.asset_id,
+            collector=collector_name,
+            status=output["status"],
+            output=output,
+        ))
+
+        evidence_id = f"EV-{uuid4().hex[:12].upper()}"
+        evidence_dir = Path(settings.evidence_root) / asset.asset_id / collector_name
+        evidence_dir.mkdir(parents=True, exist_ok=True)
+        evidence_path = evidence_dir / f"{evidence_id}.json"
+        evidence_path.write_text(json.dumps(output, indent=2, default=str))
+
+        control_id = output.get("control_ids", [None])[0]
+
+        db.add(Evidence(
+            evidence_id=evidence_id,
+            asset_id=asset.asset_id,
+            control_id=control_id,
+            filename=evidence_path.name,
+            file_path=str(evidence_path),
+            source="collector",
+            description=f"Initial deployment collector output for {collector_name}",
+            collector=collector_name,
+            evidence_type=collector_name,
+            frameworks=output.get("frameworks", {}),
+            validated=output.get("status") == "completed",
+        ))
+
+        results.append({
+            "run_id": run_id,
+            "evidence_id": evidence_id,
+            "collector": collector_name,
+            "status": output["status"],
+        })
+
+    db.commit()
+
+    finding_result = analyze_all_evidence(db)
+
+    return {
+        "collector_results": results,
+        "finding_analysis": finding_result,
+    }
 
 
 @router.post("/deploy")
@@ -73,7 +134,6 @@ def deploy(payload: AgentDeployRequest, db: Session = Depends(get_db)):
         )
         db.add(existing)
     else:
-        # Preserve asset_id so previous findings/evidence/mappings remain linked.
         existing.hostname = payload.hostname
         existing.address = payload.address
         existing.environment = payload.environment
@@ -82,12 +142,19 @@ def deploy(payload: AgentDeployRequest, db: Session = Depends(get_db)):
         existing.agent_status = result["status"]
 
     db.commit()
+    db.refresh(existing)
+
+    collection_result = None
+    if result["status"] == "deployed":
+        collection_result = run_initial_collection(db, existing)
 
     return {
         "deployment_id": deployment_id,
         "asset_id": payload.asset_id,
         "status": result["status"],
+        "message": "Agent deployed. Initial evidence collection and finding analysis completed." if collection_result else "Agent deployment did not complete successfully. Initial collection was not run.",
         "output": result.get("output", []),
+        "initial_collection": collection_result,
     }
 
 
@@ -98,8 +165,6 @@ def update_agent_asset(asset_id: str, payload: AgentDeployRequest, db: Session =
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
 
-    # This updates inventory/connection metadata only.
-    # It does not delete evidence/findings/mappings.
     asset.hostname = payload.hostname
     asset.address = payload.address
     asset.environment = payload.environment
@@ -113,6 +178,7 @@ def update_agent_asset(asset_id: str, payload: AgentDeployRequest, db: Session =
     return {
         "status": "updated",
         "asset": asset,
+        "message": "Agent metadata updated. Existing findings, evidence, and mappings remain linked by asset_id.",
     }
 
 
@@ -123,7 +189,6 @@ def upgrade_agent(asset_id: str, payload: AgentDeployRequest, db: Session = Depe
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
 
-    # Upgrade preserves asset_id. Existing evidence/findings remain mapped.
     result = deploy_agent(
         address=payload.address,
         username=payload.username,
@@ -152,13 +217,19 @@ def upgrade_agent(asset_id: str, payload: AgentDeployRequest, db: Session = Depe
     ))
 
     db.commit()
+    db.refresh(asset)
+
+    collection_result = None
+    if result["status"] == "deployed":
+        collection_result = run_initial_collection(db, asset)
 
     return {
         "deployment_id": deployment_id,
         "asset_id": asset.asset_id,
         "status": result["status"],
-        "message": "Agent upgraded. Existing findings, evidence, and mappings remain linked by asset_id.",
+        "message": "Agent upgraded. Existing findings, evidence, and mappings remain linked by asset_id. Evidence and findings were refreshed.",
         "output": result.get("output", []),
+        "initial_collection": collection_result,
     }
 
 
@@ -169,7 +240,6 @@ def remove_agent(asset_id: str, db: Session = Depends(get_db)):
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
 
-    # This removes the agent from the target, but does not delete asset/evidence/findings.
     result = run_ssh_command(
         host=asset.address,
         username=asset.ssh_user,
@@ -177,8 +247,6 @@ def remove_agent(asset_id: str, db: Session = Depends(get_db)):
         port=asset.ssh_port or 22,
     )
 
-    # The current command allowlist may block userdel, so we still update platform state
-    # only if execution succeeds. If blocked, return the reason.
     if result.get("exit_code") != 0:
         return {
             "asset_id": asset.asset_id,

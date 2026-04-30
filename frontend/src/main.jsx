@@ -42,6 +42,8 @@ function App() {
   const [findings, setFindings] = useState([]);
   const [evidence, setEvidence] = useState([]);
   const [scores, setScores] = useState({});
+  const [environments, setEnvironments] = useState(["all"]);
+  const [selectedEnvironment, setSelectedEnvironment] = useState("all");
   const [collectors, setCollectors] = useState([]);
   const [chatMessage, setChatMessage] = useState("");
   const [chatResponse, setChatResponse] = useState("");
@@ -60,13 +62,14 @@ function App() {
   const [agentForm, setAgentForm] = useState(emptyAgentForm);
 
   async function refresh() {
-    const [h, a, f, e, s, c] = await Promise.all([
+    const [h, a, f, e, s, c, env] = await Promise.all([
       fetch(`${API}/api/health`).then(r => r.json()),
       fetch(`${API}/api/assets/`).then(r => r.json()),
       fetch(`${API}/api/findings/`).then(r => r.json()),
       fetch(`${API}/api/evidence/`).then(r => r.json()),
-      fetch(`${API}/api/compliance/score`).then(r => r.json()),
-      fetch(`${API}/api/collectors/`).then(r => r.json())
+      fetch(`${API}/api/compliance/score?environment=${selectedEnvironment}`).then(r => r.json()),
+      fetch(`${API}/api/collectors/`).then(r => r.json()),
+      fetch(`${API}/api/compliance/environments`).then(r => r.json())
     ]);
 
     setHealth(h);
@@ -75,6 +78,7 @@ function App() {
     setEvidence(e);
     setScores(s);
     setCollectors(c.collectors || []);
+    setEnvironments(env.environments || ["all"]);
   }
 
   async function runCollectors(asset_id) {
@@ -218,7 +222,7 @@ function App() {
     }
   }
 
-  useEffect(() => { refresh(); }, []);
+  useEffect(() => { refresh(); }, [selectedEnvironment]);
 
   return (
     <main>
@@ -227,6 +231,12 @@ function App() {
         <p>Central control plane for agents, evidence, findings, compliance scoring, and reporting.</p>
         <div className="actions">
           <button onClick={refresh}>Refresh</button>
+          <label className="environment-filter">
+            Environment:
+            <select value={selectedEnvironment} onChange={e => setSelectedEnvironment(e.target.value)}>
+              {environments.map(env => <option key={env} value={env}>{env}</option>)}
+            </select>
+          </label>
           <button onClick={analyzeEvidence}>Analyze Evidence Into Findings</button>
         </div>
       </header>
