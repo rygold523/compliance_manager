@@ -530,17 +530,30 @@ function App() {
         </Section>
 
         <Section title={`Policies (${policies.length})`}>
-          <div className="section-actions policy-upload">
-            <input
-              type="file"
-              onChange={e => setPolicyFile(e.target.files[0] || null)}
-            />
-            <input
-              value={policyScope}
-              onChange={e => setPolicyScope(e.target.value)}
-              placeholder="Policy scope: access control, logging, vulnerability management, incident response..."
-            />
-            <button onClick={openUploadMappingModal}>Select / Confirm Mappings</button>
+          <div className="policy-upload-panel">
+            <div className="policy-upload-field">
+              <label>Policy Document</label>
+              <input
+                type="file"
+                onChange={e => setPolicyFile(e.target.files[0] || null)}
+              />
+            </div>
+
+            <div className="policy-upload-field">
+              <label>Policy Scope</label>
+              <textarea
+                value={policyScope}
+                onChange={e => setPolicyScope(e.target.value)}
+                placeholder="Describe what this policy covers. Example: access control, MFA, user provisioning, logging, vulnerability management, incident response, backup and recovery."
+                rows={3}
+              />
+            </div>
+
+            <div className="policy-upload-actions">
+              <button onClick={openUploadMappingModal}>
+                Select / Confirm Mappings
+              </button>
+            </div>
           </div>
 
           <DataTable
