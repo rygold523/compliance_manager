@@ -1,3 +1,5 @@
+from app.api import collector_mappings
+from app.api import control_readiness
 from app.api import controls
 from app.api import windows_collectors
 from app.api import remediations
@@ -50,3 +52,7 @@ app.include_router(remediations.router)
 app.include_router(windows_collectors.router)
 
 app.include_router(controls.router)
+
+app.include_router(control_readiness.router)
+
+app.include_router(collector_mappings.router)

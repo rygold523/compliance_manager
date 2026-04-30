@@ -366,3 +366,40 @@ button.danger {
     grid-template-columns: 1fr;
   }
 }
+
+.readiness-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.readiness-summary span {
+  display: inline-block;
+  padding: 6px 10px;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  background: #f6f8fa;
+  font-weight: 600;
+}
+
+.status-pill {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-weight: 700;
+  text-transform: capitalize;
+  border: 1px solid #d0d7de;
+}
+
+.status-pill.validated {
+  background: #dafbe1;
+}
+
+.status-pill.documented {
+  background: #fff8c5;
+}
+
+.status-pill.missing {
+  background: #ffebe9;
+}

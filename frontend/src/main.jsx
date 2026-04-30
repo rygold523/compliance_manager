@@ -89,6 +89,7 @@ function App() {
   const [collectors, setCollectors] = useState([]);
   const [policies, setPolicies] = useState([]);
   const [controls, setControls] = useState([]);
+  const [controlReadiness, setControlReadiness] = useState({ summary: {}, framework_scores: {}, controls: [] });
   const [remediations, setRemediations] = useState([]);
   const [policyFile, setPolicyFile] = useState(null);
   const [policyScope, setPolicyScope] = useState("");
@@ -113,17 +114,18 @@ function App() {
   const [agentForm, setAgentForm] = useState(emptyAgentForm);
 
   async function refresh() {
-    const [h, a, f, e, s, c, env, p, r, ctrl] = await Promise.all([
+    const [h, a, f, e, s, c, env, p, r, ctrl, cr] = await Promise.all([
       fetch(`${API}/api/health`).then(r => r.json()),
       fetch(`${API}/api/assets/`).then(r => r.json()),
       fetch(`${API}/api/findings/`).then(r => r.json()),
       fetch(`${API}/api/evidence/`).then(r => r.json()),
       fetch(`${API}/api/compliance/score?environment=${selectedEnvironment}`).then(r => r.json()),
-      fetch(`${API}/api/collectors/`).then(r => r.json()),
+      fetch(`${API}/api/collector-mappings/`).then(r => r.json()).catch(() => ({ collectors: [] })),
       fetch(`${API}/api/compliance/environments`).then(r => r.json()),
       fetch(`${API}/api/policies/`).then(r => r.json()).catch(() => []),
       fetch(`${API}/api/remediations/`).then(r => r.json()).catch(() => []),
-      fetch(`${API}/api/controls/`).then(r => r.json()).catch(() => [])
+      fetch(`${API}/api/controls/`).then(r => r.json()).catch(() => []),
+      fetch(`${API}/api/compliance/control-readiness/`).then(r => r.json()).catch(() => ({ summary: {}, framework_scores: {}, controls: [] }))
     ]);
 
     const filteredFindings = filterStaleFindings(Array.isArray(f) ? f : [], Array.isArray(e) ? e : []);
@@ -132,7 +134,8 @@ function App() {
     setAssets(Array.isArray(a) ? a : []);
     setFindings(filteredFindings);
     setEvidence(Array.isArray(e) ? e : []);
-    setScores(s || {});
+    setControlReadiness(cr || { summary: {}, framework_scores: {}, controls: [] });
+    setScores((cr && cr.framework_scores) ? cr.framework_scores : (s || {}));
     setCollectors(c.collectors || []);
     setEnvironments(env.environments || ["all"]);
     setPolicies(Array.isArray(p) ? p : []);
@@ -585,15 +588,45 @@ function App() {
           />
         </Section>
 
-        <Section title={`Controls (${controls.length})`}>
+        <Section title={`Control Readiness (${controlReadiness.summary?.total_controls || 0})`}>
+          <div className="readiness-summary">
+            <span>Validated: {controlReadiness.summary?.validated || 0}</span>
+            <span>Documented: {controlReadiness.summary?.documented || 0}</span>
+            <span>Missing: {controlReadiness.summary?.missing || 0}</span>
+          </div>
+
           <DataTable
             columns={[
               { key: "control_id", label: "Control ID" },
               { key: "title", label: "Title" },
               { key: "domain", label: "Domain" },
-              { key: "framework_mappings", label: "Frameworks", render: r => Object.keys(r.framework_mappings || {}).join(", ") }
+              { key: "status", label: "Status", render: r => <span className={`status-pill ${r.status}`}>{r.status}</span> },
+              { key: "score", label: "Score" },
+              { key: "policy_count", label: "Policies" },
+              { key: "evidence_count", label: "Evidence" },
+              { key: "details", label: "Details", render: r => (
+                <button
+                  onClick={() => {
+                    setModalTitle(`Control Readiness: ${r.control_id}`);
+                    setModalData([
+                      {
+                        control_id: r.control_id,
+                        title: r.title,
+                        domain: r.domain,
+                        status: r.status,
+                        score: r.score,
+                        policies: r.policies || [],
+                        evidence: r.evidence || [],
+                        framework_mappings: r.framework_mappings || {}
+                      }
+                    ]);
+                  }}
+                >
+                  View
+                </button>
+              ) }
             ]}
-            rows={controls}
+            rows={controlReadiness.controls || []}
           />
         </Section>
 
@@ -601,7 +634,9 @@ function App() {
           <DataTable
             columns={[
               { key: "name", label: "Collector" },
-              { key: "control_ids", label: "Controls", render: r => (r.control_ids || []).join(", ") }
+              { key: "control_ids", label: "Control IDs", render: r => (r.control_ids || []).join(", ") },
+              { key: "mapped_controls", label: "Catalog Mappings", render: r => (r.mapped_controls || []).map(c => `${c.control_id}: ${c.title}`).join("; ") },
+              { key: "unmapped_control_ids", label: "Unmapped", render: r => (r.unmapped_control_ids || []).join(", ") || "None" }
             ]}
             rows={collectors}
           />
