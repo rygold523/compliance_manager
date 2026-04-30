@@ -545,13 +545,13 @@ function App() {
                 value={policyScope}
                 onChange={e => setPolicyScope(e.target.value)}
                 placeholder="Describe what this policy covers. Example: access control, MFA, user provisioning, logging, vulnerability management, incident response, backup and recovery."
-                rows={3}
+                rows={4}
               />
             </div>
 
             <div className="policy-upload-actions">
               <button onClick={openUploadMappingModal}>
-                Select / Confirm Mappings
+                Upload Policy / Select Control Mappings
               </button>
             </div>
           </div>
@@ -572,7 +572,7 @@ function App() {
                     type="file"
                     onChange={e => setReplacePolicyFiles({ ...replacePolicyFiles, [r.policy_id]: e.target.files[0] || null })}
                   />
-                  <button onClick={() => openReplaceMappingModal(r)}>Replace</button>
+                  <button onClick={() => openReplaceMappingModal(r)}>Replace / Confirm Mappings</button>
                   <button className="danger" onClick={() => deletePolicy(r.policy_id)}>Remove</button>
                 </div>
               ) }
