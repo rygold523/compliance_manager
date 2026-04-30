@@ -8,6 +8,7 @@ from app.services.control_catalog import list_controls, framework_mappings_for_c
 router = APIRouter(prefix="/api/compliance/control-readiness", tags=["control-readiness"])
 
 POLICIES_DB = Path("/var/lib/ai-vulnerability-management/policies/policies.json")
+DOCUMENTS_DB = Path("/var/lib/ai-vulnerability-management/documents/documents.json")
 
 
 def row_to_dict(row):
@@ -37,6 +38,16 @@ def get_db_rows(model_name):
             return [row_to_dict(row) for row in db.query(model).all()]
         finally:
             db.close()
+    except Exception:
+        return []
+
+
+def load_documents():
+    if not DOCUMENTS_DB.exists():
+        return []
+
+    try:
+        return json.loads(DOCUMENTS_DB.read_text())
     except Exception:
         return []
 
@@ -130,6 +141,8 @@ def score_control(has_policy, has_validated_evidence):
 def get_control_readiness():
     controls = list_controls()
     policies = load_policies()
+    documents = load_documents()
+    policies = policies + documents
     evidence = get_db_rows("Evidence")
 
     documented_controls = build_policy_index(policies)

@@ -1,3 +1,4 @@
+from app.api import documents
 from app.api import collector_mappings
 from app.api import control_readiness
 from app.api import controls
@@ -56,3 +57,5 @@ app.include_router(controls.router)
 app.include_router(control_readiness.router)
 
 app.include_router(collector_mappings.router)
+
+app.include_router(documents.router)

@@ -88,12 +88,16 @@ function App() {
   const [selectedEnvironment, setSelectedEnvironment] = useState("all");
   const [collectors, setCollectors] = useState([]);
   const [policies, setPolicies] = useState([]);
+  const [documents, setDocuments] = useState([]);
   const [controls, setControls] = useState([]);
   const [controlReadiness, setControlReadiness] = useState({ summary: {}, framework_scores: {}, controls: [] });
   const [remediations, setRemediations] = useState([]);
   const [policyFile, setPolicyFile] = useState(null);
   const [policyScope, setPolicyScope] = useState("");
+  const [documentFile, setDocumentFile] = useState(null);
+  const [documentScope, setDocumentScope] = useState("");
   const [replacePolicyFiles, setReplacePolicyFiles] = useState({});
+  const [replaceDocumentFiles, setReplaceDocumentFiles] = useState({});
   const [mappingModal, setMappingModal] = useState(null);
   const [selectedMappings, setSelectedMappings] = useState({});
   const [chatMessage, setChatMessage] = useState("");
@@ -114,7 +118,7 @@ function App() {
   const [agentForm, setAgentForm] = useState(emptyAgentForm);
 
   async function refresh() {
-    const [h, a, f, e, s, c, env, p, r, ctrl, cr] = await Promise.all([
+    const [h, a, f, e, s, c, env, p, d, r, ctrl, cr] = await Promise.all([
       fetch(`${API}/api/health`).then(r => r.json()),
       fetch(`${API}/api/assets/`).then(r => r.json()),
       fetch(`${API}/api/findings/`).then(r => r.json()),
@@ -123,6 +127,7 @@ function App() {
       fetch(`${API}/api/collector-mappings/`).then(r => r.json()).catch(() => ({ collectors: [] })),
       fetch(`${API}/api/compliance/environments`).then(r => r.json()),
       fetch(`${API}/api/policies/`).then(r => r.json()).catch(() => []),
+      fetch(`${API}/api/documents/`).then(r => r.json()).catch(() => []),
       fetch(`${API}/api/remediations/`).then(r => r.json()).catch(() => []),
       fetch(`${API}/api/controls/`).then(r => r.json()).catch(() => []),
       fetch(`${API}/api/compliance/control-readiness/`).then(r => r.json()).catch(() => ({ summary: {}, framework_scores: {}, controls: [] }))
@@ -139,6 +144,7 @@ function App() {
     setCollectors(c.collectors || []);
     setEnvironments(env.environments || ["all"]);
     setPolicies(Array.isArray(p) ? p : []);
+    setDocuments(Array.isArray(d) ? d : []);
     setRemediations(Array.isArray(r) ? r : []);
     setControls(Array.isArray(ctrl) ? ctrl : []);
   }
@@ -376,6 +382,16 @@ function App() {
       method = "PUT";
     }
 
+    if (mappingModal.mode === "document-upload") {
+      url = `${API}/api/documents/upload`;
+      method = "POST";
+    }
+
+    if (mappingModal.mode === "document-replace") {
+      url = `${API}/api/documents/${mappingModal.document_id}/replace`;
+      method = "PUT";
+    }
+
     const res = await fetch(url, {
       method,
       body: form
@@ -385,9 +401,18 @@ function App() {
 
     setPolicyFile(null);
     setPolicyScope("");
+    setDocumentFile(null);
+    setDocumentScope("");
     setMappingModal(null);
     setSelectedMappings({});
-    setReplacePolicyFiles({ ...replacePolicyFiles, [mappingModal.policy_id]: null });
+
+    if (mappingModal.policy_id) {
+      setReplacePolicyFiles({ ...replacePolicyFiles, [mappingModal.policy_id]: null });
+    }
+
+    if (mappingModal.document_id) {
+      setReplaceDocumentFiles({ ...replaceDocumentFiles, [mappingModal.document_id]: null });
+    }
 
     await refresh();
   }
@@ -410,7 +435,13 @@ function App() {
   async function confirmExistingPolicyMappingEdit() {
     if (!mappingModal) return;
 
-    const res = await fetch(`${API}/api/policies/${mappingModal.policy_id}/mappings`, {
+    let url = `${API}/api/policies/${mappingModal.policy_id}/mappings`;
+
+    if (mappingModal.mode === "document-edit") {
+      url = `${API}/api/documents/${mappingModal.document_id}/mappings`;
+    }
+
+    const res = await fetch(url, {
       method: "PUT",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({
@@ -422,6 +453,88 @@ function App() {
 
     setMappingModal(null);
     setSelectedMappings({});
+    await refresh();
+  }
+
+  async function openDocumentMappingModal() {
+    if (!documentFile) {
+      alert("Select a supporting document first.");
+      return;
+    }
+
+    const suggestion = await fetch(`${API}/api/documents/suggest-mappings`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        filename: documentFile.name,
+        scope: documentScope
+      })
+    }).then(r => r.json());
+
+    const selected = {};
+    for (const control of suggestion.controls || controls) {
+      selected[control.control_id] = (suggestion.suggested_control_ids || []).includes(control.control_id);
+    }
+
+    setSelectedMappings(selected);
+    setMappingModal({
+      mode: "document-upload",
+      title: `Confirm mappings for ${documentFile.name}`,
+      file: documentFile,
+      scope: documentScope,
+      controls: suggestion.controls || controls
+    });
+  }
+
+  async function openReplaceDocumentMappingModal(document) {
+    const file = replaceDocumentFiles[document.document_id];
+
+    if (!file) {
+      alert("Select a replacement file first.");
+      return;
+    }
+
+    const selected = {};
+    for (const control of controls) {
+      selected[control.control_id] = (document.mapped_controls || []).includes(control.control_id);
+    }
+
+    setSelectedMappings(selected);
+    setMappingModal({
+      mode: "document-replace",
+      title: `Confirm mappings for replacement: ${document.filename}`,
+      document_id: document.document_id,
+      file,
+      scope: document.scope || "",
+      controls
+    });
+  }
+
+  async function editExistingDocumentMappings(document) {
+    const selected = {};
+    for (const control of controls) {
+      selected[control.control_id] = (document.mapped_controls || []).includes(control.control_id);
+    }
+
+    setSelectedMappings(selected);
+    setMappingModal({
+      mode: "document-edit",
+      title: `Edit mappings for ${document.filename}`,
+      document_id: document.document_id,
+      controls
+    });
+  }
+
+  async function deleteDocument(documentId) {
+    if (!confirm(`Delete document ${documentId}? This will remove its control mappings.`)) {
+      return;
+    }
+
+    const res = await fetch(`${API}/api/documents/${documentId}`, {
+      method: "DELETE"
+    }).then(r => r.json());
+
+    alert(JSON.stringify(res, null, 2));
     await refresh();
   }
 
@@ -604,6 +717,68 @@ function App() {
               ) }
             ]}
             rows={policies}
+          />
+        </Section>
+
+        <Section title={`Documents (${documents.length})`}>
+          <div className="policy-upload-modal-panel">
+            <div className="policy-upload-field">
+              <label>Supporting Document</label>
+              <input
+                type="file"
+                onChange={e => setDocumentFile(e.target.files[0] || null)}
+              />
+            </div>
+
+            <div className="policy-upload-field">
+              <label>Document Scope</label>
+              <textarea
+                value={documentScope}
+                onChange={e => setDocumentScope(e.target.value)}
+                placeholder="Describe what this document supports. Example: risk register, risk analysis, backup report, SIEM report, access review, vendor review, vulnerability scan."
+                rows={4}
+              />
+            </div>
+
+            <div className="policy-upload-actions">
+              <button onClick={openDocumentMappingModal}>
+                Upload Document / Select Control Mappings
+              </button>
+            </div>
+          </div>
+
+          <DataTable
+            columns={[
+              { key: "document_id", label: "Document ID" },
+              { key: "filename", label: "Document" },
+              { key: "mapped_controls", label: "Controls", render: r => (r.mapped_controls || []).join(", ") },
+              { key: "mapped_frameworks", label: "Frameworks", render: r => Object.keys(r.mapped_frameworks || {}).join(", ") },
+              { key: "actions", label: "Actions", render: r => (
+                <select
+                  className="asset-action-select"
+                  defaultValue=""
+                  onChange={e => {
+                    const action = e.target.value;
+                    e.target.value = "";
+
+                    if (action === "download") window.open(`${API}/api/documents/${r.document_id}/download`, "_blank");
+                    if (action === "edit") editExistingDocumentMappings(r);
+                    if (action === "remove") deleteDocument(r.document_id);
+                    if (action === "details") {
+                      setModalTitle(`Document Details: ${r.filename}`);
+                      setModalData([r]);
+                    }
+                  }}
+                >
+                  <option value="" disabled>Choose action</option>
+                  <option value="details">View Details</option>
+                  <option value="download">Download</option>
+                  <option value="edit">Edit Mappings</option>
+                  <option value="remove">Remove</option>
+                </select>
+              ) }
+            ]}
+            rows={documents}
           />
         </Section>
 
@@ -807,7 +982,7 @@ function App() {
             </div>
 
             <div className="modal-actions">
-              <button onClick={mappingModal.mode === "edit" ? confirmExistingPolicyMappingEdit : confirmPolicyMapping}>
+              <button onClick={(mappingModal.mode === "edit" || mappingModal.mode === "document-edit") ? confirmExistingPolicyMappingEdit : confirmPolicyMapping}>
                 Save Confirmed Mappings
               </button>
               <button className="secondary" onClick={() => setMappingModal(null)}>Cancel</button>
