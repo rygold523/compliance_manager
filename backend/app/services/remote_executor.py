@@ -15,7 +15,11 @@ ALLOWED_PREFIXES = [
     "sudo apt-get install --only-upgrade", "sudo nginx -t",
     "sudo systemctl status nginx", "sudo systemctl reload nginx", "sudo journalctl",
     "sudo tail", "sudo grep", "sudo find", "sudo cat", "sudo ufw status",
-    "sudo docker ps", "grep",
+    "sudo docker ps",
+    "sudo -n docker ps",
+    "sudo -n ufw status",
+    "sudo -n nft list ruleset",
+    "sudo -n iptables -S", "grep",
     "sudo userdel compliance-agent",
 ]
 
