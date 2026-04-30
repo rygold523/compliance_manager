@@ -283,7 +283,7 @@ function App() {
           />
         </Section>
 
-        <Section title={`Findings (${findings.length})`}>
+        <Section title={`Current Findings (${findings.length})`}>
           <DataTable
             columns={[
               { key: "finding_id", label: "Finding ID" },
@@ -297,7 +297,7 @@ function App() {
           />
         </Section>
 
-        <Section title={`Evidence (${evidence.length})`}>
+        <Section title={`Current Evidence (${evidence.length})`}>
           <DataTable
             columns={[
               { key: "evidence_id", label: "Evidence ID" },
