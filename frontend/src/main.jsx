@@ -13,6 +13,30 @@ function groupByAsset(items) {
   }, {});
 }
 
+function extractCollectorName(title) {
+  const match = title?.match(/collector failed: (.+)$/i);
+  return match ? match[1].trim() : null;
+}
+
+function filterStaleFindings(findings, evidence) {
+  const validEvidenceMap = new Set(
+    evidence
+      .filter(item => item.validated === true)
+      .map(item => `${item.asset_id}:${item.collector}`)
+  );
+
+  return findings.filter(finding => {
+    const collectorName = extractCollectorName(finding.title);
+
+    if (!collectorName) {
+      return true;
+    }
+
+    const key = `${finding.asset_id}:${collectorName}`;
+    return !validEvidenceMap.has(key);
+  });
+}
+
 function Section({ title, children }) {
   return (
     <section className="card">
@@ -83,9 +107,11 @@ function App() {
       fetch(`${API}/api/compliance/environments`).then(r => r.json())
     ]);
 
+    const filteredFindings = filterStaleFindings(f, e);
+
     setHealth(h);
     setAssets(a);
-    setFindings(f);
+    setFindings(filteredFindings);
     setEvidence(e);
     setScores(s);
     setCollectors(c.collectors || []);
