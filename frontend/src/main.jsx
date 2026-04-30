@@ -530,7 +530,7 @@ function App() {
         </Section>
 
         <Section title={`Policies (${policies.length})`}>
-          <div className="policy-upload-panel">
+          <div className="policy-upload-modal-panel">
             <div className="policy-upload-field">
               <label>Policy Document</label>
               <input

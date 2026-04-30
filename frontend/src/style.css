@@ -542,3 +542,44 @@ button.danger {
     align-items: end;
   }
 }
+
+.policy-upload-modal-panel {
+  display: grid !important;
+  grid-template-columns: 1fr !important;
+  gap: 14px !important;
+  margin-bottom: 18px !important;
+  padding: 16px !important;
+  border: 1px solid #d0d7de !important;
+  border-radius: 8px !important;
+  background: #f6f8fa !important;
+  overflow: visible !important;
+}
+
+.policy-upload-modal-panel .policy-upload-field {
+  display: grid !important;
+  grid-template-columns: 1fr !important;
+  gap: 6px !important;
+}
+
+.policy-upload-modal-panel label {
+  font-weight: 700 !important;
+}
+
+.policy-upload-modal-panel textarea {
+  width: 100% !important;
+  min-height: 100px !important;
+  resize: vertical !important;
+  box-sizing: border-box !important;
+}
+
+.policy-upload-modal-panel .policy-upload-actions {
+  display: flex !important;
+  justify-content: flex-start !important;
+}
+
+.policy-upload-modal-panel .policy-upload-actions button {
+  display: inline-block !important;
+  min-width: 280px !important;
+  max-width: 100% !important;
+  white-space: normal !important;
+}
