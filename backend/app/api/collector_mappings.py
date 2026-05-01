@@ -15,9 +15,10 @@ COLLECTOR_CONTROL_MAP = {
     "available_updates": ["VM-01"],
     "firewall_status": ["NS-01", "NS-02"],
     "ssh_config": ["AC-02", "AC-04", "CM-01"],
-    "time_sync": ["SI-01", "CM-01"],
-    "disk_usage": ["CP-01", "CM-01"],
-    "docker_inventory": ["CM-01", "CM-02", "VM-01"],
+    "time_sync": ["SI-01", "SI-05", "CM-01"],
+    "disk_usage": ["CP-01", "CP-05", "CM-01"],
+    "docker_inventory": ["CM-01", "CM-02", "CP-05", "SI-03", "VM-01"],
+    "cicd_security": ["SD-04"],
     "windows_local_users": ["AC-02", "AC-05", "AC-06"],
     "windows_local_groups": ["AC-02", "AC-04"],
     "windows_defender_status": ["SI-01", "VM-01"],
@@ -25,9 +26,9 @@ COLLECTOR_CONTROL_MAP = {
     "windows_hotfixes": ["VM-01"],
     "windows_listening_ports": ["NS-01", "NS-02"],
     "windows_logon_events": ["AC-02", "SI-01"],
-    "windows_time_sync": ["SI-01", "CM-01"],
-    "windows_disk_usage": ["CP-01", "CM-01"],
-    "windows_services": ["CM-01", "CM-02"],
+    "windows_time_sync": ["SI-01", "SI-05", "CM-01"],
+    "windows_disk_usage": ["CP-01", "CP-05", "CM-01"],
+    "windows_services": ["CM-01", "CM-02", "CP-05", "SI-03"],
 }
 
 
