@@ -4,6 +4,8 @@ from collections import defaultdict
 import json
 
 from app.services.control_catalog import list_controls, framework_mappings_for_controls
+from app.services.environment_validation import environment_validations
+from app.services.control_scoring import control_score
 
 router = APIRouter(prefix="/api/compliance/control-readiness", tags=["control-readiness"])
 
@@ -127,14 +129,6 @@ def build_evidence_index(evidence):
     return validated_controls
 
 
-def score_control(has_policy, has_validated_evidence):
-    if has_validated_evidence:
-        return 100
-
-    if has_policy:
-        return 50
-
-    return 0
 
 
 @router.get("/")
@@ -148,6 +142,17 @@ def get_control_readiness():
     documented_controls = build_policy_index(policies)
     validated_controls = build_evidence_index(evidence)
 
+    env_validations = environment_validations(evidence)
+
+    for control_id, validation in env_validations.items():
+        validated_controls[control_id].append({
+            "evidence_id": "ENVIRONMENT-VALIDATION",
+            "asset_id": "environment",
+            "collector": validation.get("supporting_service"),
+            "created_at": None,
+            "validation_reason": validation.get("reason"),
+        })
+
     readiness = []
 
     for control in controls:
@@ -156,21 +161,22 @@ def get_control_readiness():
         evidence_refs = validated_controls.get(control_id, [])
 
         has_policy = len(policy_refs) > 0
+        has_document = False
         has_evidence = len(evidence_refs) > 0
 
-        if has_evidence:
-            status = "validated"
-        elif has_policy:
-            status = "documented"
-        else:
-            status = "missing"
+        score_value, status = control_score(
+            control_id,
+            has_policy=has_policy,
+            has_document=has_document,
+            has_validated_evidence=has_evidence,
+        )
 
         readiness.append({
             "control_id": control_id,
             "title": control.get("title"),
             "domain": control.get("domain"),
             "status": status,
-            "score": score_control(has_policy, has_evidence),
+            "score": score_value,
             "policy_count": len(policy_refs),
             "evidence_count": len(evidence_refs),
             "policies": policy_refs,

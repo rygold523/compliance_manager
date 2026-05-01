@@ -3,6 +3,7 @@ from pathlib import Path
 import json
 
 from app.services.control_catalog import list_controls
+from app.services.environment_validation import environment_validations
 
 POLICIES_DB = Path("/var/lib/ai-vulnerability-management/policies/policies.json")
 DOCUMENTS_DB = Path("/var/lib/ai-vulnerability-management/documents/documents.json")
@@ -334,8 +335,21 @@ def summarize(items):
 def audit_readiness_for_framework(framework):
     policies = index_artifacts_by_control(load_json(POLICIES_DB), "policy_id")
     documents = index_artifacts_by_control(load_json(DOCUMENTS_DB), "document_id")
-    evidence = index_evidence_by_control(get_db_rows("Evidence"))
+    evidence_rows = get_db_rows("Evidence")
+    evidence = index_evidence_by_control(evidence_rows)
     findings = index_findings_by_control(get_db_rows("Finding"))
+
+    env_validations = environment_validations(evidence_rows)
+
+    for control_id, validation in env_validations.items():
+        evidence[control_id].append({
+            "evidence_id": "ENVIRONMENT-VALIDATION",
+            "asset_id": "environment",
+            "collector": validation.get("supporting_service"),
+            "validated": True,
+            "created_at": None,
+            "validation_reason": validation.get("reason"),
+        })
 
     controls = framework_controls(framework)
 
