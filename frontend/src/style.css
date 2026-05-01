@@ -699,3 +699,41 @@ button.danger {
   max-height: 85vh !important;
   overflow: auto !important;
 }
+
+.control-detail-view {
+  display: grid;
+  gap: 12px;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  padding: 10px;
+  background: #f6f8fa;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+}
+
+.detail-list {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.detail-list li {
+  margin-bottom: 10px;
+  padding: 8px;
+  border-bottom: 1px solid #d0d7de;
+}
+
+.detail-pre {
+  white-space: pre-wrap;
+  background: #f6f8fa;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  padding: 10px;
+}
+
+.muted {
+  color: #57606a;
+}

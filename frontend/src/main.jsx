@@ -39,9 +39,74 @@ function filterStaleFindings(findings, evidence) {
 
 function formatCell(value) {
   if (value === null || value === undefined) return "";
-  if (Array.isArray(value)) return value.join(", ");
-  if (typeof value === "object") return JSON.stringify(value);
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "None";
+
+    return value.map(item => {
+      if (item === null || item === undefined) return "";
+
+      if (typeof item === "object") {
+        return Object.entries(item)
+          .filter(([, v]) => v !== null && v !== undefined && v !== "")
+          .map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : String(v)}`)
+          .join(" | ");
+      }
+
+      return String(item);
+    }).join("\n");
+  }
+
+  if (typeof value === "object") {
+    return Object.entries(value)
+      .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : typeof v === "object" ? JSON.stringify(v) : String(v)}`)
+      .join("\n");
+  }
+
   return String(value);
+}
+
+function DetailList({ items, emptyText }) {
+  if (!items || items.length === 0) {
+    return <span className="muted">{emptyText || "None"}</span>;
+  }
+
+  return (
+    <ul className="detail-list">
+      {items.map((item, idx) => (
+        <li key={idx}>
+          {Object.entries(item).map(([key, value]) => (
+            <div key={key}>
+              <strong>{key}:</strong> {formatCell(value)}
+            </div>
+          ))}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function ControlReadinessDetails({ record }) {
+  return (
+    <div className="control-detail-view">
+      <h3>{record.control_id} — {record.title}</h3>
+
+      <div className="detail-grid">
+        <div><strong>Domain:</strong> {record.domain}</div>
+        <div><strong>Status:</strong> {record.status}</div>
+        <div><strong>Score:</strong> {record.score}</div>
+      </div>
+
+      <h4>Policies</h4>
+      <DetailList items={record.policies || []} emptyText="No mapped policies" />
+
+      <h4>Validated Evidence</h4>
+      <DetailList items={record.evidence || []} emptyText="No validated evidence" />
+
+      <h4>Framework Mappings</h4>
+      <pre className="detail-pre">{JSON.stringify(record.framework_mappings || {}, null, 2)}</pre>
+    </div>
+  );
 }
 
 function Section({ title, children }) {
@@ -1019,28 +1084,32 @@ function App() {
               Close
             </button>
 
-            <table border="1" width="100%" style={{ borderCollapse: "collapse" }}>
-              <thead>
-                <tr>
-                  {Object.keys(modalData[0] || {}).map(key => (
-                    <th key={key} style={{ padding: "8px", background: "#f0f0f0" }}>
-                      {key}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {modalData.map((row, idx) => (
-                  <tr key={idx}>
-                    {Object.values(row).map((val, i) => (
-                      <td key={i} style={{ padding: "8px" }}>
-                        {formatCell(val)}
-                      </td>
+            {modalTitle.startsWith("Control Readiness:") && modalData.length === 1 ? (
+              <ControlReadinessDetails record={modalData[0]} />
+            ) : (
+              <table border="1" width="100%" style={{ borderCollapse: "collapse" }}>
+                <thead>
+                  <tr>
+                    {Object.keys(modalData[0] || {}).map(key => (
+                      <th key={key} style={{ padding: "8px", background: "#f0f0f0" }}>
+                        {key}
+                      </th>
                     ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {modalData.map((row, idx) => (
+                    <tr key={idx}>
+                      {Object.values(row).map((val, i) => (
+                        <td key={i} style={{ padding: "8px", whiteSpace: "pre-line" }}>
+                          {formatCell(val)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
       )}
