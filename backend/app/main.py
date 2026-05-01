@@ -1,3 +1,5 @@
+from app.api import audit_readiness
+from app.api import reports
 from app.api import documents
 from app.api import collector_mappings
 from app.api import control_readiness
@@ -59,3 +61,7 @@ app.include_router(control_readiness.router)
 app.include_router(collector_mappings.router)
 
 app.include_router(documents.router)
+
+app.include_router(reports.router)
+
+app.include_router(audit_readiness.router)

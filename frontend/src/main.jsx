@@ -156,6 +156,7 @@ function App() {
   const [documents, setDocuments] = useState([]);
   const [controls, setControls] = useState([]);
   const [controlReadiness, setControlReadiness] = useState({ summary: {}, framework_scores: {}, controls: [] });
+  const [auditReadiness, setAuditReadiness] = useState({ frameworks: [] });
   const [remediations, setRemediations] = useState([]);
   const [policyFile, setPolicyFile] = useState(null);
   const [policyScope, setPolicyScope] = useState("");
@@ -183,7 +184,7 @@ function App() {
   const [agentForm, setAgentForm] = useState(emptyAgentForm);
 
   async function refresh() {
-    const [h, a, f, e, s, c, env, p, d, r, ctrl, cr] = await Promise.all([
+    const [h, a, f, e, s, c, env, p, d, r, ctrl, cr, ar] = await Promise.all([
       fetch(`${API}/api/health`).then(r => r.json()),
       fetch(`${API}/api/assets/`).then(r => r.json()),
       fetch(`${API}/api/findings/`).then(r => r.json()),
@@ -195,7 +196,8 @@ function App() {
       fetch(`${API}/api/documents/`).then(r => r.json()).catch(() => []),
       fetch(`${API}/api/remediations/`).then(r => r.json()).catch(() => []),
       fetch(`${API}/api/controls/`).then(r => r.json()).catch(() => []),
-      fetch(`${API}/api/compliance/control-readiness/`).then(r => r.json()).catch(() => ({ summary: {}, framework_scores: {}, controls: [] }))
+      fetch(`${API}/api/compliance/control-readiness/`).then(r => r.json()).catch(() => ({ summary: {}, framework_scores: {}, controls: [] })),
+      fetch(`${API}/api/audit-readiness/`).then(r => r.json()).catch(() => ({ frameworks: [] }))
     ]);
 
     const filteredFindings = filterStaleFindings(Array.isArray(f) ? f : [], Array.isArray(e) ? e : []);
@@ -205,6 +207,7 @@ function App() {
     setFindings(filteredFindings);
     setEvidence(Array.isArray(e) ? e : []);
     setControlReadiness(cr || { summary: {}, framework_scores: {}, controls: [] });
+    setAuditReadiness(ar || { frameworks: [] });
     setScores((cr && cr.framework_scores) ? cr.framework_scores : (s || {}));
     setCollectors(c.collectors || []);
     setEnvironments(env.environments || ["all"]);
@@ -646,7 +649,12 @@ function App() {
               { key: "label", label: "Framework" },
               { key: "readiness_score", label: "Score" },
               { key: "status", label: "Status" },
-              { key: "report", label: "Report", render: r => <a href={`${API}/api/reports/${r.framework}`} target="_blank">Generate</a> }
+              { key: "report", label: "Report", render: r => (
+                <div className="row-actions">
+                  <a href={`${API}/api/reports/${r.framework}`} target="_blank">Generate</a>
+                  <a href={`${API}/api/reports/${r.framework}/package`} target="_blank">Download ZIP</a>
+                </div>
+              ) }
             ]}
             rows={Object.entries(scores).map(([framework, s]) => ({ framework, ...s }))}
           />
@@ -687,6 +695,30 @@ function App() {
               ) }
             ]}
             rows={assets}
+          />
+        </Section>
+
+        <Section title="Audit Readiness">
+          <DataTable
+            columns={[
+              { key: "framework", label: "Framework" },
+              { key: "readiness", label: "Readiness", render: r => r.summary?.readiness || "Unknown" },
+              { key: "estimated_audit_outcome", label: "Estimated Audit Outcome", render: r => r.summary?.estimated_audit_outcome || "Unknown" },
+              { key: "high_risk", label: "High Risk", render: r => r.summary?.high_risk || 0 },
+              { key: "moderate_risk", label: "Moderate", render: r => r.summary?.moderate_risk || 0 },
+              { key: "low_risk", label: "Low", render: r => r.summary?.low_risk || 0 },
+              { key: "actions", label: "Actions", render: r => (
+                <button
+                  onClick={() => {
+                    setModalTitle(`Audit Readiness: ${r.framework}`);
+                    setModalData(r.recommendations || []);
+                  }}
+                >
+                  View Suggestions
+                </button>
+              ) }
+            ]}
+            rows={auditReadiness.frameworks || []}
           />
         </Section>
 
