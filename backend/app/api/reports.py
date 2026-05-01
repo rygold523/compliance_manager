@@ -5,6 +5,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 import html
 import json
+import re
 
 from app.services.control_catalog import list_controls
 
@@ -238,22 +239,30 @@ def build_requirement_rows(framework):
             validated_evidence = [item for item in evidence_refs if item.get("validated")]
             invalid_evidence = [item for item in evidence_refs if not item.get("validated")]
 
-            has_documentation = bool(policy_refs or document_refs)
+            has_policy = bool(policy_refs)
+            has_document = bool(document_refs)
             has_validated_evidence = bool(validated_evidence)
 
-            if has_validated_evidence:
-                control_status = "Validated"
+            score_value, status_key = control_score(
+                control_id,
+                has_policy=has_policy,
+                has_document=has_document,
+                has_validated_evidence=has_validated_evidence,
+            )
+
+            control_status = control_status_label(status_key)
+
+            if score_value == 100:
                 requirement_has_valid_evidence = True
-            elif has_documentation:
-                control_status = "Documented"
+            elif score_value == 50:
                 requirement_has_documentation = True
             else:
-                control_status = "Missing"
                 requirement_has_gap = True
 
             control_rows.append({
                 "control": control,
                 "status": control_status,
+                "score": score_value,
                 "policies": policy_refs,
                 "documents": document_refs,
                 "validated_evidence": validated_evidence,
@@ -261,15 +270,22 @@ def build_requirement_rows(framework):
                 "findings": finding_refs,
             })
 
-        if requirement_has_valid_evidence:
-            requirement_status = "Satisfied by Validated Evidence"
-            score = 100
-        elif requirement_has_documentation:
+        control_scores = [item.get("score", 0) for item in control_rows]
+
+        if control_scores:
+            score = max(control_scores)
+        else:
+            score = 0
+
+        if score == 100:
+            if any(item.get("status") == "Validated" for item in control_rows):
+                requirement_status = "Satisfied by Validated Evidence"
+            else:
+                requirement_status = "Satisfied by Documentation"
+        elif score == 50:
             requirement_status = "Documented / Needs Evidence"
-            score = 50
         else:
             requirement_status = "Missing"
-            score = 0
 
         if requirement_has_gap and requirement_status != "Missing":
             requirement_status += " with Gaps"
@@ -559,3 +575,184 @@ def generate_framework_report(framework: str):
     """
 
     return HTMLResponse(content=html_body)
+
+from fastapi.responses import FileResponse
+from zipfile import ZipFile, ZIP_DEFLATED
+import tempfile
+import os
+import shutil
+
+from app.services.control_scoring import control_score, control_status_label
+
+EVIDENCE_DIRS = [
+    Path("/app/evidence"),
+    Path("/var/lib/ai-vulnerability-management/evidence"),
+]
+
+POLICY_FILES_DIR = Path("/var/lib/ai-vulnerability-management/policies/files")
+DOCUMENT_FILES_DIR = Path("/var/lib/ai-vulnerability-management/documents/files")
+
+
+def find_evidence_file(evidence_id):
+    if not evidence_id:
+        return None
+
+    for base in EVIDENCE_DIRS:
+        if not base.exists():
+            continue
+
+        matches = list(base.rglob(f"{evidence_id}.json"))
+        if matches:
+            return matches[0]
+
+        matches = list(base.rglob(f"*{evidence_id}*.json"))
+        if matches:
+            return matches[0]
+
+    return None
+
+
+def safe_zip_name(value):
+    value = str(value or "unknown")
+    return re.sub(r"[^A-Za-z0-9._/-]", "_", value)
+
+
+def collect_report_artifacts(framework):
+    framework = normalize_framework(framework)
+    rows = build_requirement_rows(framework)
+
+    policies = load_json(POLICIES_DB)
+    documents = load_json(DOCUMENTS_DB)
+    evidence = get_db_rows("Evidence")
+
+    policy_by_id = {p.get("policy_id"): p for p in policies}
+    document_by_id = {d.get("document_id"): d for d in documents}
+    evidence_by_id = {e.get("evidence_id"): e for e in evidence}
+
+    policy_ids = set()
+    document_ids = set()
+    evidence_ids = set()
+
+    manifest = {
+        "framework": framework,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "requirements": [],
+    }
+
+    for row in rows:
+        requirement_entry = {
+            "requirement": row["requirement"],
+            "status": row["status"],
+            "score": row["score"],
+            "controls": [],
+        }
+
+        for control_row in row["controls"]:
+            control = control_row["control"]
+            control_entry = {
+                "control_id": control.get("control_id"),
+                "title": control.get("title"),
+                "status": control_row["status"],
+                "policies": [],
+                "documents": [],
+                "evidence": [],
+                "findings": control_row.get("findings", []),
+            }
+
+            for policy in control_row.get("policies", []):
+                pid = policy.get("id")
+                if pid:
+                    policy_ids.add(pid)
+                    control_entry["policies"].append(pid)
+
+            for document in control_row.get("documents", []):
+                did = document.get("id")
+                if did:
+                    document_ids.add(did)
+                    control_entry["documents"].append(did)
+
+            for ev in control_row.get("validated_evidence", []):
+                eid = ev.get("evidence_id")
+                if eid:
+                    evidence_ids.add(eid)
+                    control_entry["evidence"].append(eid)
+
+            requirement_entry["controls"].append(control_entry)
+
+        manifest["requirements"].append(requirement_entry)
+
+    return {
+        "manifest": manifest,
+        "policies": [policy_by_id[pid] for pid in sorted(policy_ids) if pid in policy_by_id],
+        "documents": [document_by_id[did] for did in sorted(document_ids) if did in document_by_id],
+        "evidence": [evidence_by_id[eid] for eid in sorted(evidence_ids) if eid in evidence_by_id],
+    }
+
+
+@router.get("/{framework}/package")
+def download_report_package(framework: str):
+    framework = normalize_framework(framework)
+    artifacts = collect_report_artifacts(framework)
+
+    tmpdir = tempfile.mkdtemp(prefix=f"{framework}_evidence_package_")
+    zip_path = Path(tmpdir) / f"{framework}_evidence_package.zip"
+
+    try:
+        with ZipFile(zip_path, "w", ZIP_DEFLATED) as z:
+            z.writestr(
+                "manifest.json",
+                json.dumps(artifacts["manifest"], indent=2, sort_keys=True),
+            )
+
+            for policy in artifacts["policies"]:
+                stored = policy.get("stored_filename")
+                source = POLICY_FILES_DIR / stored if stored else None
+
+                if source and source.exists():
+                    z.write(
+                        source,
+                        f"policies/{safe_zip_name(policy.get('policy_id'))}_{safe_zip_name(policy.get('filename'))}",
+                    )
+                else:
+                    z.writestr(
+                        f"policies/MISSING_{safe_zip_name(policy.get('policy_id'))}.txt",
+                        json.dumps(policy, indent=2, sort_keys=True),
+                    )
+
+            for document in artifacts["documents"]:
+                stored = document.get("stored_filename")
+                source = DOCUMENT_FILES_DIR / stored if stored else None
+
+                if source and source.exists():
+                    z.write(
+                        source,
+                        f"documents/{safe_zip_name(document.get('document_id'))}_{safe_zip_name(document.get('filename'))}",
+                    )
+                else:
+                    z.writestr(
+                        f"documents/MISSING_{safe_zip_name(document.get('document_id'))}.txt",
+                        json.dumps(document, indent=2, sort_keys=True),
+                    )
+
+            for ev in artifacts["evidence"]:
+                source = find_evidence_file(ev.get("evidence_id"))
+
+                if source and source.exists():
+                    z.write(
+                        source,
+                        f"evidence/{safe_zip_name(ev.get('asset_id'))}/{safe_zip_name(ev.get('collector'))}/{safe_zip_name(source.name)}",
+                    )
+                else:
+                    z.writestr(
+                        f"evidence/MISSING_{safe_zip_name(ev.get('evidence_id'))}.json",
+                        json.dumps(ev, indent=2, sort_keys=True),
+                    )
+
+        return FileResponse(
+            zip_path,
+            filename=f"{framework}_evidence_package.zip",
+            media_type="application/zip",
+        )
+    except Exception:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+        raise
