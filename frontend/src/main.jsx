@@ -1,58 +1,10 @@
 
 
-function ContinuousComplianceOperationsSection() {
-  const domains = [
-    {
-      title: "Regulatory Monitoring",
-      description: "Tracks FCC, TCPA, CTIA, CASL, A2P, and vendor compliance source changes."
-    },
-    {
-      title: "Messaging Compliance",
-      description: "Monitors suppression, opt-out handling, consent validation, and quiet-hour protections."
-    },
-    {
-      title: "Compliance Drift",
-      description: "Identifies stale evidence, failed collectors, expired reviews, and baseline drift."
-    },
-    {
-      title: "Evidence Freshness",
-      description: "Evaluates whether required evidence remains current and defensible."
-    },
-    {
-      title: "Incident Monitoring",
-      description: "Tracks suppression failures, rejection spikes, opt-out violations, and delivery failures."
-    },
-    {
-      title: "Vendor / Control Plane Validation",
-      description: "Validates Twilio and other authoritative control-plane evidence sources."
-    }
-  ];
-
-  return (
-    <section className="dashboard-section continuous-compliance-section">
-      <div className="section-header">
-        <h2>Continuous Compliance Operations</h2>
-        <p>
-          Operational compliance monitoring for regulatory changes, messaging controls,
-          evidence freshness, compliance drift, incidents, and vendor control-plane validation.
-        </p>
-      </div>
-
-      <div className="continuous-compliance-grid">
-        {domains.map((domain) => (
-          <div className="continuous-compliance-card" key={domain.title}>
-            <h3>{domain.title}</h3>
-            <p>{domain.description}</p>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
 
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
+import ContinuousComplianceState from "./pages/continuous-compliance/ContinuousComplianceState.jsx";
 
 const API = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
@@ -1197,7 +1149,7 @@ function App() {
           </div>
         </div>
       )}
-          <ContinuousComplianceOperationsSection />
+          <ContinuousComplianceState />
       </main>
   );
 }
