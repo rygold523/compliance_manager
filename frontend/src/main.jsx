@@ -696,10 +696,20 @@ function App() {
 
   return (
     <main>
-      <header>
-        <h1>Compliance Manager</h1>
-        <p>Central control plane for agents, evidence, findings, compliance scoring, and reporting.</p>
-        <div className="actions">
+      <header className="im-hero">
+          <div className="im-brand-row">
+            <img
+              src="/brand/full-logo-animation-01.gif"
+              alt="Iteration Matrix"
+              className="im-logo-gif"
+            />
+            <div>
+              <h1>Compliance Manager</h1>
+              <p>Central control plane for agents, evidence, findings, compliance scoring, and reporting.</p>
+            </div>
+          </div>
+          <div className="im-grid-accent"></div>
+          <div className="actions">
           <button onClick={refresh}>Refresh</button>
           <label className="environment-filter">
             Environment:
@@ -709,7 +719,7 @@ function App() {
           </label>
           <button onClick={analyzeEvidence}>Analyze Evidence Into Findings</button>
         </div>
-      </header>
+        </header>
 
       <div className="grid">
         <Section title="System">
