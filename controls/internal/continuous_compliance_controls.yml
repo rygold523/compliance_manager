@@ -1,0 +1,55 @@
+controls:
+  - control_id: SMS-COMP-01
+    title: Messaging Compliance Governance
+    domain: Messaging Compliance
+    description: Validates SMS messaging compliance controls, suppression handling, consent management, evidence freshness, and operational monitoring.
+    maps_to:
+      - pci_dss
+      - soc2
+      - nist_800_53
+      - iso_27002
+    evidence_policy: evidence-policies/SMS-COMP-01.yml
+
+  - control_id: TWILIO-VAL-01
+    title: Twilio Control Plane Validation
+    domain: Vendor / Control Plane Validation
+    description: Validates Twilio control-plane configuration, A2P status, opt-out handling, quiet-hour protections, and production parity.
+    maps_to:
+      - soc2
+      - nist_800_53
+      - iso_27002
+
+  - control_id: REG-MON-01
+    title: Regulatory Intelligence Monitoring
+    domain: Regulatory Monitoring
+    description: Monitors FCC, TCPA, CTIA, A2P, CASL, and vendor compliance guidance for operational changes and governance review.
+    maps_to:
+      - soc2
+      - iso_27002
+
+  - control_id: DRIFT-01
+    title: Compliance Drift Detection
+    domain: Compliance Drift
+    description: Detects stale evidence, expired approvals, failed collectors, operational drift, and baseline deviations.
+    maps_to:
+      - pci_dss
+      - soc2
+      - nist_800_53
+      - iso_27002
+
+  - control_id: EVID-FRESH-01
+    title: Evidence Freshness Validation
+    domain: Evidence Freshness
+    description: Validates evidence freshness requirements and operational defensibility.
+    maps_to:
+      - pci_dss
+      - soc2
+      - iso_27002
+
+  - control_id: INCIDENT-MON-01
+    title: Messaging Incident Monitoring
+    domain: Incident Monitoring
+    description: Monitors messaging incidents including suppression failures, opt-out violations, rejection spikes, and delivery failures.
+    maps_to:
+      - pci_dss
+      - soc2
