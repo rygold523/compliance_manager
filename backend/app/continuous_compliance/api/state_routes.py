@@ -5,8 +5,11 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from app.continuous_compliance.services.state.domain_status import (
-    default_domain_statuses,
     summarize_status_counts,
+)
+
+from app.continuous_compliance.services.evaluation.domain_evaluator import (
+    build_operational_domain_states,
 )
 
 router = APIRouter(
@@ -24,7 +27,7 @@ class MarkCurrentRequest(BaseModel):
 
 @router.get("/domains")
 def domain_state():
-    statuses = default_domain_statuses()
+    statuses = build_operational_domain_states()
 
     return {
         "summary": summarize_status_counts(statuses),
