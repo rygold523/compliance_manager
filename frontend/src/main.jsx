@@ -710,21 +710,37 @@ function App() {
         </Section>
 
         <Section title="Compliance Scores">
-          <DataTable
-            columns={[
-              { key: "label", label: "Framework" },
-              { key: "readiness_score", label: "Score" },
-              { key: "status", label: "Status" },
-              { key: "report", label: "Report", render: r => (
-                <div className="row-actions">
-                  <a href={`${API}/api/reports/${r.framework}`} target="_blank">Generate</a>
-                  <a href={`${API}/api/reports/${r.framework}/package`} target="_blank">Download ZIP</a>
-                </div>
-              ) }
-            ]}
-            rows={Object.entries(scores).map(([framework, s]) => ({ framework, ...s }))}
-          />
-        </Section>
+        <table>
+          <thead>
+            <tr>
+              <th>Framework</th>
+              <th>Score</th>
+              <th>Status</th>
+              <th>Report</th>
+            </tr>
+          </thead>
+          <tbody>
+            {normalizeComplianceScores(scores).length === 0 ? (
+              <tr>
+                <td colSpan="4">No records found.</td>
+              </tr>
+            ) : (
+              normalizeComplianceScores(scores).map((r) => (
+                <tr key={r.framework}>
+                  <td>{r.framework}</td>
+                  <td>{r.score}</td>
+                  <td>{r.status}</td>
+                  <td>
+                    <a href={`${API}/api/reports/${r.framework}`} target="_blank">Generate</a>
+                    {' '}
+                    <a href={`${API}/api/reports/${r.framework}/package`} target="_blank">Download ZIP</a>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </Section>
 
         <Section title={`Assets (${assets.length})`}>
           <div className="section-actions">
