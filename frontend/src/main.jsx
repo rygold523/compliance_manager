@@ -6,6 +6,68 @@ import { createRoot } from "react-dom/client";
 import "./style.css";
 import ContinuousComplianceState from "./pages/continuous-compliance/ContinuousComplianceState.jsx";
 
+
+function normalizeComplianceScores(scorePayload) {
+  if (!scorePayload) return [];
+
+  const preferredOrder = ["pci_dss", "soc2", "nist_800_53", "iso_27001", "iso_27002"];
+
+  let rawItems = [];
+
+  if (Array.isArray(scorePayload)) {
+    rawItems = scorePayload;
+  } else if (Array.isArray(scorePayload.scores)) {
+    rawItems = scorePayload.scores;
+  } else if (Array.isArray(scorePayload.framework_scores)) {
+    rawItems = scorePayload.framework_scores;
+  } else if (scorePayload.framework_scores && typeof scorePayload.framework_scores === "object") {
+    rawItems = Object.entries(scorePayload.framework_scores).map(([framework, value]) => ({
+      framework,
+      ...(value || {})
+    }));
+  } else if (typeof scorePayload === "object") {
+    rawItems = Object.entries(scorePayload)
+      .filter(([key, value]) => value && typeof value === "object")
+      .map(([framework, value]) => ({
+        framework,
+        ...(value || {})
+      }));
+  }
+
+  const byFramework = {};
+
+  rawItems.forEach((item) => {
+    const framework = item.framework || item.name || item.id;
+    if (!framework) return;
+
+    byFramework[framework] = {
+      framework,
+      score:
+        item.score ??
+        item.readiness_score ??
+        item.compliance_score ??
+        item.value ??
+        0,
+      status:
+        item.status ??
+        item.readiness_status ??
+        item.audit_status ??
+        "unknown"
+    };
+  });
+
+  return Object.values(byFramework).sort((a, b) => {
+    const ai = preferredOrder.indexOf(a.framework);
+    const bi = preferredOrder.indexOf(b.framework);
+
+    if (ai === -1 && bi === -1) return a.framework.localeCompare(b.framework);
+    if (ai === -1) return 1;
+    if (bi === -1) return -1;
+
+    return ai - bi;
+  });
+}
+
 const API = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
 function groupByAsset(items) {
