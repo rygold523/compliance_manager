@@ -8,6 +8,7 @@ from app.api import windows_collectors
 from app.api import remediations
 from app.api import policies
 from fastapi import FastAPI
+from app.continuous_compliance.api.routes import router as continuous_compliance_router
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.assets import router as assets_router
 from app.api.findings import router as findings_router
@@ -65,3 +66,6 @@ app.include_router(documents.router)
 app.include_router(reports.router)
 
 app.include_router(audit_readiness.router)
+
+# Additive continuous compliance routes
+app.include_router(continuous_compliance_router)

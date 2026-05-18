@@ -1,0 +1,24 @@
+control_id: SMS-COMP-01
+description: SMS compliance controls for Twilio messaging, suppression, consent, opt-out handling, and regulatory review.
+required_evidence:
+  - name: twilio_compliance_config
+    scope_requirement: authoritative_source
+    authoritative_source: twilio_control_plane
+    freshness: 7d
+    required: true
+
+  - name: suppression_validation
+    scope_requirement: environment_level
+    environment: production
+    freshness: 7d
+    required: true
+
+  - name: opt_out_event_logs
+    scope_requirement: central_application_log
+    freshness: 30d
+    required: true
+
+  - name: regulatory_review
+    scope_requirement: governance_level
+    freshness: 90d
+    required: true
