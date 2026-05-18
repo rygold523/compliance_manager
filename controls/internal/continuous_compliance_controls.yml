@@ -8,6 +8,7 @@ controls:
       - soc2
       - nist_800_53
       - iso_27002
+      - iso_27001
     evidence_policy: evidence-policies/SMS-COMP-01.yml
 
   - control_id: TWILIO-VAL-01
@@ -18,6 +19,7 @@ controls:
       - soc2
       - nist_800_53
       - iso_27002
+      - iso_27001
 
   - control_id: REG-MON-01
     title: Regulatory Intelligence Monitoring
@@ -26,6 +28,7 @@ controls:
     maps_to:
       - soc2
       - iso_27002
+      - iso_27001
 
   - control_id: DRIFT-01
     title: Compliance Drift Detection
@@ -36,6 +39,7 @@ controls:
       - soc2
       - nist_800_53
       - iso_27002
+      - iso_27001
 
   - control_id: EVID-FRESH-01
     title: Evidence Freshness Validation
@@ -45,6 +49,7 @@ controls:
       - pci_dss
       - soc2
       - iso_27002
+      - iso_27001
 
   - control_id: INCIDENT-MON-01
     title: Messaging Incident Monitoring
