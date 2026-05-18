@@ -1,3 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_DIR="/opt/ai-vulnerability-management"
+PDF_ROUTER="$REPO_DIR/backend/app/api/report_pdf.py"
+
+cd "$REPO_DIR"
+
+cp "$PDF_ROUTER" "${PDF_ROUTER}.bak.stripcss.$(date +%Y%m%d_%H%M%S)"
+
+cat > "$PDF_ROUTER" <<'PY'
 import re
 from html.parser import HTMLParser
 from io import BytesIO
@@ -143,3 +154,6 @@ def download_report_pdf(framework: str, request: Request):
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+PY
+
+echo "[+] PDF report CSS stripping fix applied."
