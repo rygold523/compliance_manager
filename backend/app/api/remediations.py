@@ -43,7 +43,7 @@ def framework_targets(control_id):
     known_prefixes = {"AC", "AM", "CM", "CP", "IR", "SI", "VM", "NS", "EN", "SD"}
 
     if prefix in known_prefixes:
-        return ["pci_dss", "soc2", "nist_800_53", "iso_27002"]
+        return ["pci_dss", "soc2", "nist_800_53", "iso_27002", "iso_27001"]
 
     return ["pci_dss", "soc2"]
 

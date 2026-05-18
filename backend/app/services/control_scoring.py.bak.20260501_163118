@@ -1,0 +1,35 @@
+DOCUMENTATION_SATISFIED_CONTROLS = {
+    "AC-07",  # Periodic Access Reviews
+    "AM-01",
+    "AM-02",
+    "AM-03",
+    "CP-01",
+    "CP-02",
+    "IR-01",
+    "IR-02",
+    "RM-01",
+}
+
+
+def control_score(control_id, has_policy=False, has_document=False, has_validated_evidence=False):
+    if has_validated_evidence:
+        return 100, "validated"
+
+    if control_id in DOCUMENTATION_SATISFIED_CONTROLS and (has_policy or has_document):
+        return 100, "satisfied_by_documentation"
+
+    if has_policy or has_document:
+        return 50, "documented"
+
+    return 0, "missing"
+
+
+def control_status_label(status):
+    labels = {
+        "validated": "Validated",
+        "satisfied_by_documentation": "Satisfied by Documentation",
+        "documented": "Documented / Needs Evidence",
+        "missing": "Missing",
+    }
+
+    return labels.get(status, status)
