@@ -741,6 +741,8 @@ function App() {
                     <a href={`${API}/api/reports/${r.framework}`} target="_blank">Generate</a>
                     {' '}
                     <a href={`${API}/api/reports/${r.framework}/package`} target="_blank">Download ZIP</a>
+                    {' '}
+                    <a href={`${API}/api/reports/${r.framework}/pdf`} target="_blank">Download PDF</a>
                   </td>
                 </tr>
               ))

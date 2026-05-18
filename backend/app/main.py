@@ -25,6 +25,7 @@ from app.api.collectors import router as collectors_router
 from app.api.compliance import router as compliance_router
 from app.api.reports import router as reports_router
 from app.api.scanners import router as scanners_router
+from app.api.report_pdf import router as report_pdf_router
 from app.core.database import Base, engine
 
 Base.metadata.create_all(bind=engine)
@@ -73,3 +74,4 @@ app.include_router(audit_readiness.router)
 app.include_router(continuous_compliance_router)
 app.include_router(continuous_compliance_reporting_router)
 app.include_router(continuous_compliance_state_router)
+app.include_router(report_pdf_router)
