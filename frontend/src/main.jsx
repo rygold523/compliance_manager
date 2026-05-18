@@ -274,7 +274,14 @@ function App() {
     setEvidence(Array.isArray(e) ? e : []);
     setControlReadiness(cr || { summary: {}, framework_scores: {}, controls: [] });
     setAuditReadiness(ar || { frameworks: [] });
-    setScores((cr && cr.framework_scores) ? cr.framework_scores : (s || {}));
+    
+    const mergedScores = {
+      ...(s || {}),
+      ...((cr && cr.framework_scores) || {})
+    };
+
+    setScores(mergedScores);
+
     setCollectors(c.collectors || []);
     setEnvironments(env.environments || ["all"]);
     setPolicies(Array.isArray(p) ? p : []);
