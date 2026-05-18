@@ -1,5 +1,11 @@
 import React, { useEffect, useState } from "react";
 
+function apiUrl(path) {
+  const host = window.location.hostname || "localhost";
+  return `http://${host}:8000${path}`;
+}
+
+
 function badgeClass(status) {
   if (status === "current" || status === "valid" || status === "within_compliance") {
     return "cc-status-badge cc-status-current";
@@ -26,7 +32,7 @@ export default function ContinuousComplianceState() {
     setError("");
 
     try {
-      const response = await fetch("/api/v2/continuous-compliance/state/domains");
+      const response = await fetch(apiUrl("/api/v2/continuous-compliance/state/domains"));
       if (!response.ok) {
         throw new Error(`Request failed with status ${response.status}`);
       }
@@ -41,7 +47,7 @@ export default function ContinuousComplianceState() {
   }
 
   async function markCurrent(domain) {
-    await fetch("/api/v2/continuous-compliance/state/domains/mark-current", {
+    await fetch(apiUrl("/api/v2/continuous-compliance/state/domains/mark-current"), {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
