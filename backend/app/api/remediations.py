@@ -197,7 +197,11 @@ def list_remediations():
 
         if dedupe_key not in seen:
             seen.add(dedupe_key)
-            remediations.append(remediation)
+            asset = db.query(Asset).filter(Asset.asset_id == remediation.get("asset_id")).first()
+        if asset and not finding_applies_to_asset(remediation, asset):
+            continue
+
+        remediations.append(remediation)
 
     for ev in latest_evidence.values():
         if evidence_is_valid(ev):
@@ -228,7 +232,11 @@ def list_remediations():
 
         if dedupe_key not in seen:
             seen.add(dedupe_key)
-            remediations.append(remediation)
+            asset = db.query(Asset).filter(Asset.asset_id == remediation.get("asset_id")).first()
+        if asset and not finding_applies_to_asset(remediation, asset):
+            continue
+
+        remediations.append(remediation)
 
     grouped = defaultdict(list)
     for item in remediations:
