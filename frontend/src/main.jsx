@@ -1,4 +1,21 @@
 
+function renderBadgeList(value) {
+  const items = Array.isArray(value) ? value : [];
+
+  if (items.length === 0) {
+    return <span className="muted">Not classified</span>;
+  }
+
+  return (
+    <div className="badge-list">
+      {items.map(item => (
+        <span key={item} className="role-badge">{item}</span>
+      ))}
+    </div>
+  );
+}
+
+
 function formatAuditCurrentStateValue(value) {
   if (value === null || value === undefined || value === "") return "";
 
@@ -1011,6 +1028,8 @@ function App() {
               { key: "hostname", label: "Hostname" },
               { key: "address", label: "Address" },
               { key: "environment", label: "Environment" },
+              { key: "asset_roles", label: "Server Classifications", render: r => renderBadgeList(r.asset_roles || []) },
+              { key: "data_classification", label: "Data Classification", render: r => renderBadgeList(r.data_classification || []) },
               { key: "agent_status", label: "Agent Status" },
               { key: "actions", label: "Actions", render: r => (
                 <select
@@ -1350,34 +1369,38 @@ function App() {
             </select>
 
               <label>Server Classifications</label>
-              <select
-                multiple
-                value={agentForm.asset_roles || []}
-                onChange={(e) => setAgentForm({
-                  ...agentForm,
-                  asset_roles: multiSelectValues(e)
-                })}
-                style={{ minHeight: "160px" }}
-              >
+              <div className="checkbox-grid">
                 {ASSET_ROLE_OPTIONS.map(role => (
-                  <option key={role} value={role}>{role}</option>
+                  <label key={role} className="checkbox-pill">
+                    <input
+                      type="checkbox"
+                      checked={(agentForm.asset_roles || []).includes(role)}
+                      onChange={() => setAgentForm({
+                        ...agentForm,
+                        asset_roles: toggleListValue(agentForm.asset_roles, role)
+                      })}
+                    />
+                    {role}
+                  </label>
                 ))}
-              </select>
+              </div>
 
               <label>Data Classification</label>
-              <select
-                multiple
-                value={agentForm.data_classification || []}
-                onChange={(e) => setAgentForm({
-                  ...agentForm,
-                  data_classification: multiSelectValues(e)
-                })}
-                style={{ minHeight: "110px" }}
-              >
+              <div className="checkbox-grid">
                 {DATA_CLASSIFICATION_OPTIONS.map(item => (
-                  <option key={item} value={item}>{item}</option>
+                  <label key={item} className="checkbox-pill">
+                    <input
+                      type="checkbox"
+                      checked={(agentForm.data_classification || []).includes(item)}
+                      onChange={() => setAgentForm({
+                        ...agentForm,
+                        data_classification: toggleListValue(agentForm.data_classification, item)
+                      })}
+                    />
+                    {item}
+                  </label>
                 ))}
-              </select>
+              </div>
 
 
             <div className="modal-actions">

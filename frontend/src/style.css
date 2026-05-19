@@ -1206,3 +1206,49 @@ select[multiple] {
   padding: 8px;
   background: #fff;
 }
+
+.checkbox-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 8px;
+  margin: 8px 0 14px 0;
+}
+
+.checkbox-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #d8dbe3;
+  border-radius: 12px;
+  padding: 8px 10px;
+  background: #ffffff;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.checkbox-pill input {
+  width: auto;
+}
+
+.badge-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.role-badge {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #d000ff;
+  color: #050505;
+  background: rgba(208, 0, 255, 0.08);
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.muted {
+  color: #6b7280;
+  font-size: 12px;
+}
