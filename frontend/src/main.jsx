@@ -1,4 +1,35 @@
 
+function renderAnyValue(value) {
+  if (value === null || value === undefined || value === "") return "";
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "";
+    return (
+      <ul className="modal-value-list">
+        {value.map((item, index) => (
+          <li key={index}>{renderAnyValue(item)}</li>
+        ))}
+      </ul>
+    );
+  }
+
+  if (typeof value === "object") {
+    return (
+      <div className="modal-object-value">
+        {Object.entries(value).map(([key, itemValue]) => (
+          <div key={key} className="modal-object-row">
+            <span className="modal-object-key">{key}:</span>{" "}
+            <span className="modal-object-detail">{renderAnyValue(itemValue)}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return String(value);
+}
+
+
 function renderCurrentStateValue(value) {
   if (value === null || value === undefined || value === "") {
     return "";
