@@ -1349,6 +1349,37 @@ function App() {
               <option value="production">production</option>
             </select>
 
+              <label>Server Classifications</label>
+              <select
+                multiple
+                value={agentForm.asset_roles || []}
+                onChange={(e) => setAgentForm({
+                  ...agentForm,
+                  asset_roles: multiSelectValues(e)
+                })}
+                style={{ minHeight: "160px" }}
+              >
+                {ASSET_ROLE_OPTIONS.map(role => (
+                  <option key={role} value={role}>{role}</option>
+                ))}
+              </select>
+
+              <label>Data Classification</label>
+              <select
+                multiple
+                value={agentForm.data_classification || []}
+                onChange={(e) => setAgentForm({
+                  ...agentForm,
+                  data_classification: multiSelectValues(e)
+                })}
+                style={{ minHeight: "110px" }}
+              >
+                {DATA_CLASSIFICATION_OPTIONS.map(item => (
+                  <option key={item} value={item}>{item}</option>
+                ))}
+              </select>
+
+
             <div className="modal-actions">
               <button onClick={submitAgentAction}>{agentMode === "deploy" ? "Deploy Agent" : agentMode === "update" ? "Update Agent" : "Upgrade Agent"}</button>
               <button className="secondary" onClick={() => setShowDeployModal(false)}>Cancel</button>
