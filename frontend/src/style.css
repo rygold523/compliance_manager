@@ -1171,3 +1171,8 @@ th {
   margin-bottom: 2px;
   word-break: break-word;
 }
+
+/* Preserve formatted audit readiness current_state text */
+td {
+  white-space: pre-line;
+}

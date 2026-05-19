@@ -1,4 +1,67 @@
 
+function formatAuditCurrentStateValue(value) {
+  if (value === null || value === undefined || value === "") return "";
+
+  if (Array.isArray(value)) {
+    return value.map(formatAuditCurrentStateValue).filter(Boolean).join("\n");
+  }
+
+  if (typeof value === "object") {
+    const preferred = [
+      "policy_id",
+      "document_id",
+      "evidence_id",
+      "finding_id",
+      "filename",
+      "collector",
+      "asset_id",
+      "title",
+      "name",
+      "severity",
+      "status",
+      "collected_at",
+      "created_at"
+    ];
+
+    const parts = [];
+
+    for (const key of preferred) {
+      if (value[key] !== null && value[key] !== undefined && value[key] !== "") {
+        parts.push(`${key}: ${formatAuditCurrentStateValue(value[key])}`);
+      }
+    }
+
+    if (parts.length > 0) {
+      return parts.join(" | ");
+    }
+
+    return Object.entries(value)
+      .map(([key, itemValue]) => `${key}: ${formatAuditCurrentStateValue(itemValue)}`)
+      .join(" | ");
+  }
+
+  return String(value);
+}
+
+function formatAuditCurrentState(currentState) {
+  if (!currentState || typeof currentState !== "object") return "";
+
+  return Object.entries(currentState)
+    .map(([key, value]) => {
+      const rendered = formatAuditCurrentStateValue(value);
+      return `${key}: ${rendered || "None"}`;
+    })
+    .join("\n");
+}
+
+function normalizeAuditRecommendations(items) {
+  return (items || []).map((item) => ({
+    ...item,
+    current_state: formatAuditCurrentState(item.current_state)
+  }));
+}
+
+
 function renderAnyValue(value) {
   if (value === null || value === undefined || value === "") return "";
 
@@ -949,7 +1012,7 @@ function App() {
                 <button
                   onClick={() => {
                     setModalTitle(`Audit Readiness: ${r.framework}`);
-                    setModalData(r.recommendations || []);
+                    setModalData(normalizeAuditRecommendations(r.recommendations || []));
                   }}
                 >
                   View Suggestions
