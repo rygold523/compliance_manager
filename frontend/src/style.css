@@ -1155,3 +1155,19 @@ th {
 .modal-value-list li {
   margin-bottom: 4px;
 }
+
+.current-state-array {
+  display: grid;
+  gap: 8px;
+}
+
+.current-state-array-object {
+  border-left: 3px solid #d000ff;
+  padding-left: 8px;
+  margin-bottom: 8px;
+}
+
+.current-state-array-row {
+  margin-bottom: 2px;
+  word-break: break-word;
+}

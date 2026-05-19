@@ -40,11 +40,29 @@ function renderCurrentStateValue(value) {
       return "";
     }
 
-    return value.map((item, index) => (
-      <div key={index} className="current-state-list-item">
-        {renderCurrentStateValue(item)}
+    return (
+      <div className="current-state-array">
+        {value.map((item, index) => {
+          if (typeof item === "object" && item !== null) {
+            return (
+              <div key={index} className="current-state-array-object">
+                {Object.entries(item).map(([k, v]) => (
+                  <div key={k} className="current-state-array-row">
+                    <strong>{k}:</strong> {renderCurrentStateValue(v)}
+                  </div>
+                ))}
+              </div>
+            );
+          }
+
+          return (
+            <div key={index} className="current-state-list-item">
+              {renderCurrentStateValue(item)}
+            </div>
+          );
+        })}
       </div>
-    ));
+    );
   }
 
   if (typeof value === "object") {
