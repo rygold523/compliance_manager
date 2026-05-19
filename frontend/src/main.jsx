@@ -295,24 +295,34 @@ function Section({ title, children }) {
 
 function DataTable({ columns, rows }) {
   return (
-    <div className="table-wrap">
-      <table>
-        <thead>
-          <tr>{columns.map(c => <th key={c.key}>{c.label}</th>)}</tr>
-        </thead>
-        <tbody>
-          {rows.length === 0 ? (
-            <tr><td colSpan={columns.length}>No records found.</td></tr>
-          ) : rows.map((row, idx) => (
-            <tr key={row.id || row.policy_id || row.evidence_id || row.finding_id || row.asset_id || idx}>
-              {columns.map(c => (
-                <td key={c.key}>{c.render ? c.render(row) : formatCell(row[c.key])}</td>
+    <table>
+      <thead>
+        <tr>
+          {columns.map(col => (
+            <th key={col.key}>{col.label}</th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {!rows || rows.length === 0 ? (
+          <tr>
+            <td colSpan={columns.length}>No records found.</td>
+          </tr>
+        ) : (
+          rows.map((row, idx) => (
+            <tr key={idx}>
+              {columns.map(col => (
+                <td key={col.key}>
+                  {col.render
+                    ? col.render(row)
+                    : renderCurrentStateValue(row[col.key])}
+                </td>
               ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          ))
+        )}
+      </tbody>
+    </table>
   );
 }
 
