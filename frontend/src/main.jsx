@@ -581,7 +581,21 @@ function App() {
     if (agentMode === "upgrade") return upgradeAgent();
   }
 
-  async function deployAgent() {
+  
+  async function saveAssetClassification(assetId) {
+    if (!assetId) return;
+
+    await fetch(`${API}/api/agents/${assetId}/classification`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        asset_roles: agentForm.asset_roles || [],
+        data_classification: agentForm.data_classification || []
+      })
+    });
+  }
+
+async function deployAgent() {
     const payload = {
       ...agentForm,
       port: Number(agentForm.port),
@@ -598,6 +612,7 @@ function App() {
     }).then(r => r.json());
 
     alert(JSON.stringify(res, null, 2));
+    await saveAssetClassification(agentForm.asset_id);
     setShowDeployModal(false);
     setAgentForm({ ...emptyAgentForm });
     await refresh();
@@ -618,6 +633,7 @@ function App() {
     }).then(r => r.json());
 
     alert(JSON.stringify(res, null, 2));
+    await saveAssetClassification(agentForm.asset_id);
     setShowDeployModal(false);
     setAgentForm({ ...emptyAgentForm });
     await refresh();
@@ -638,6 +654,7 @@ function App() {
     }).then(r => r.json());
 
     alert(JSON.stringify(res, null, 2));
+    await saveAssetClassification(agentForm.asset_id);
     setShowDeployModal(false);
     setAgentForm({ ...emptyAgentForm });
     await refresh();
