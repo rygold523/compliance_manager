@@ -1075,3 +1075,50 @@ th {
     font-size: 28px;
   }
 }
+
+/* Audit Readiness Current State Rendering */
+.current-state-rendered {
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.current-state-section {
+  border-bottom: 1px solid #d8dbe3;
+  padding-bottom: 8px;
+}
+
+.current-state-section:last-child {
+  border-bottom: 0;
+}
+
+.current-state-key {
+  font-weight: 700;
+  color: #050505;
+  margin-bottom: 3px;
+}
+
+.current-state-value {
+  color: #30363d;
+}
+
+.current-state-list-item {
+  margin-bottom: 6px;
+  padding-left: 8px;
+  border-left: 3px solid #d000ff;
+}
+
+.current-state-object {
+  margin-bottom: 6px;
+}
+
+.current-state-object-title {
+  font-weight: 700;
+  color: #9b00d9;
+}
+
+.current-state-object-detail {
+  color: #57606a;
+  word-break: break-word;
+}

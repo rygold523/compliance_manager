@@ -1,4 +1,82 @@
 
+function renderCurrentStateValue(value) {
+  if (value === null || value === undefined || value === "") {
+    return "";
+  }
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return "";
+    }
+
+    return value.map((item, index) => (
+      <div key={index} className="current-state-list-item">
+        {renderCurrentStateValue(item)}
+      </div>
+    ));
+  }
+
+  if (typeof value === "object") {
+    const label =
+      value.evidence_id ||
+      value.finding_id ||
+      value.policy_id ||
+      value.document_id ||
+      value.control_id ||
+      value.filename ||
+      value.name ||
+      value.title ||
+      value.collector ||
+      "";
+
+    const details = Object.entries(value)
+      .filter(([key, itemValue]) => {
+        if (itemValue === null || itemValue === undefined || itemValue === "") return false;
+        if (["raw", "content", "payload"].includes(key)) return false;
+        return true;
+      })
+      .map(([key, itemValue]) => {
+        if (typeof itemValue === "object") {
+          return `${key}: ${JSON.stringify(itemValue)}`;
+        }
+        return `${key}: ${itemValue}`;
+      });
+
+    return (
+      <div className="current-state-object">
+        {label && <div className="current-state-object-title">{label}</div>}
+        {details.map((line, index) => (
+          <div key={index} className="current-state-object-detail">
+            {line}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return String(value);
+}
+
+function renderCurrentState(currentState) {
+  if (!currentState || typeof currentState !== "object") {
+    return "";
+  }
+
+  return (
+    <div className="current-state-rendered">
+      {Object.entries(currentState).map(([key, value]) => (
+        <div key={key} className="current-state-section">
+          <div className="current-state-key">{key}:</div>
+          <div className="current-state-value">
+            {renderCurrentStateValue(value)}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+
 
 
 import React, { useEffect, useState } from "react";
