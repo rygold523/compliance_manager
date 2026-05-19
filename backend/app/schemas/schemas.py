@@ -27,6 +27,8 @@ class AgentDeployRequest(BaseModel):
     port: int = 22
     environment: str = "test"
     role: list[str] = ["ubuntu", "managed_target"]
+    asset_roles: list[str] = []
+    data_classification: list[str] = []
     compliance_scope: list[str] = ["pci_dss", "soc2", "nist_800_53", "iso_27001", "iso_27002"]
 
 

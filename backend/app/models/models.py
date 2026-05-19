@@ -12,6 +12,8 @@ class Asset(Base):
     address = Column(String(255), nullable=False)
     environment = Column(String(64), nullable=False)
     role = Column(JSON, default=list)
+    asset_roles = Column(JSON, default=list)
+    data_classification = Column(JSON, default=list)
     os_family = Column(String(64), default="ubuntu")
     access_method = Column(String(64), default="ssh")
     ssh_user = Column(String(128), default="compliance-agent")

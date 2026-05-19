@@ -260,6 +260,43 @@ function normalizeComplianceScores(scorePayload) {
 
 const API = import.meta.env.VITE_API_BASE_URL || `${window.location.protocol}//${window.location.hostname}:8000`;
 
+const ASSET_ROLE_OPTIONS = [
+  "application_server",
+  "web_server",
+  "database_server",
+  "monitoring_server",
+  "central_log_server",
+  "siem_server",
+  "ci_cd_server",
+  "identity_provider",
+  "sftp_server",
+  "storage_server",
+  "container_host",
+  "jumpbox",
+  "backup_server",
+  "vulnerability_scanner",
+  "firewall",
+  "dns_server",
+  "mail_server"
+];
+
+const DATA_CLASSIFICATION_OPTIONS = [
+  "pci",
+  "pii",
+  "financial",
+  "confidential",
+  "internal",
+  "public"
+];
+
+function toggleListValue(list, value) {
+  const current = Array.isArray(list) ? list : [];
+  return current.includes(value)
+    ? current.filter(item => item !== value)
+    : [...current, value];
+}
+
+
 function groupByAsset(items) {
   return items.reduce((acc, item) => {
     const asset = item.asset || item.asset_id || "unknown";
@@ -532,7 +569,9 @@ function App() {
       ...agentForm,
       port: Number(agentForm.port),
       role: ["ubuntu", "managed_target"],
-      compliance_scope: ["pci_dss", "soc2", "nist_800_53", "iso_27001", "iso_27002"]
+      compliance_scope: ["pci_dss", "soc2", "nist_800_53", "iso_27001", "iso_27002"],
+      asset_roles: [],
+      data_classification: []
     };
 
     const res = await fetch(`${API}/api/agents/deploy`, {

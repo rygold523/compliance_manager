@@ -6,6 +6,7 @@ from app.core.database import get_db
 from app.models import Asset, AgentDeployment
 from app.schemas.schemas import AgentDeployRequest
 from app.services.agent_deployer import deploy_agent
+from app.services.asset_roles import normalize_asset_roles
 from app.services.remote_executor import run_ssh_command
 from app.services.evidence_collectors import run_collector, COLLECTORS
 from app.services.evidence_finding_analyzer import analyze_all_evidence
@@ -107,6 +108,8 @@ def deploy(payload: AgentDeployRequest, db: Session = Depends(get_db)):
             address=payload.address,
             environment=payload.environment,
             role=payload.role,
+            asset_roles=normalize_asset_roles(getattr(payload, 'asset_roles', [])),
+            data_classification=getattr(payload, 'data_classification', []),
             os_family="ubuntu",
             access_method="ssh",
             ssh_user="compliance-agent",
@@ -139,6 +142,8 @@ def deploy(payload: AgentDeployRequest, db: Session = Depends(get_db)):
         existing.environment = payload.environment
         existing.ssh_port = payload.port
         existing.compliance_scope = payload.compliance_scope
+        existing.asset_roles = normalize_asset_roles(getattr(payload, 'asset_roles', []))
+        existing.data_classification = getattr(payload, 'data_classification', [])
         existing.agent_status = result["status"]
 
     db.commit()
