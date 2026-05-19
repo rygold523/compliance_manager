@@ -258,7 +258,7 @@ function normalizeComplianceScores(scorePayload) {
   });
 }
 
-const API = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+const API = import.meta.env.VITE_API_BASE_URL || `${window.location.protocol}//${window.location.hostname}:8000`;
 
 function groupByAsset(items) {
   return items.reduce((acc, item) => {
@@ -1085,7 +1085,7 @@ function App() {
               { key: "policy_id", label: "Policy ID" },
               { key: "filename", label: "Document" },
               { key: "mapped_controls", label: "Controls", render: r => (r.mapped_controls || []).join(", ") },
-              { key: "mapped_frameworks", label: "Frameworks", render: r => Object.keys(r.mapped_frameworks || {}).join(", ") },
+              { key: "mapped_frameworks", label: "Frameworks", render: r => Object.keys(r.mapped_frameworks || {}).sort().join(", ") },
               { key: "actions", label: "Actions", render: r => (
                 <select
                   className="asset-action-select"
@@ -1150,7 +1150,7 @@ function App() {
               { key: "document_id", label: "Document ID" },
               { key: "filename", label: "Document" },
               { key: "mapped_controls", label: "Controls", render: r => (r.mapped_controls || []).join(", ") },
-              { key: "mapped_frameworks", label: "Frameworks", render: r => Object.keys(r.mapped_frameworks || {}).join(", ") },
+              { key: "mapped_frameworks", label: "Frameworks", render: r => Object.keys(r.mapped_frameworks || {}).sort().join(", ") },
               { key: "actions", label: "Actions", render: r => (
                 <select
                   className="asset-action-select"
