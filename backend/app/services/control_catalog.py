@@ -47,18 +47,42 @@ def get_control(control_id):
     return None
 
 def framework_mappings_for_controls(control_ids):
-    selected = set(control_ids or [])
     frameworks = {}
 
-    for c in list_controls():
-        if c["control_id"] not in selected:
+    for control_id in control_ids or []:
+        control = get_control(control_id)
+        if not control:
             continue
 
-        for fw, refs in (c.get("framework_mappings") or {}).items():
-            frameworks.setdefault(fw, [])
-            for r in refs:
-                if r not in frameworks[fw]:
-                    frameworks[fw].append(r)
+        mappings = dict(control.get("framework_mappings") or {})
+
+        # ISO 27001 should be treated as its own framework for reporting,
+        # while inheriting ISO 27002 control mappings when explicit ISO 27001
+        # mappings are not present in the control catalog.
+        if "iso_27001" not in mappings and "iso_27002" in mappings:
+            mappings["iso_27001"] = mappings["iso_27002"]
+
+        for framework, requirements in mappings.items():
+            frameworks.setdefault(framework, [])
+
+            if isinstance(requirements, list):
+                frameworks[framework].extend(requirements)
+            elif requirements:
+                frameworks[framework].append(requirements)
+
+    # Deduplicate while preserving order.
+    for framework, requirements in frameworks.items():
+        seen = set()
+        deduped = []
+
+        for requirement in requirements:
+            if requirement in seen:
+                continue
+
+            seen.add(requirement)
+            deduped.append(requirement)
+
+        frameworks[framework] = deduped
 
     return frameworks
 

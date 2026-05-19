@@ -121,7 +121,7 @@ async def upload_policy(
         "sha256": hash_file(stored_path),
         "size_bytes": stored_path.stat().st_size,
         "mapped_controls": mapping["controls"],
-        "mapped_frameworks": mapping["frameworks"],
+        "mapped_frameworks": framework_mappings_for_controls(record.get("mapped_controls") or selected or []),
         "created_at": now(),
         "updated_at": now(),
     }
@@ -159,7 +159,7 @@ async def replace_policy(
             if mapped_controls is not None:
                 mapping = mappings_for(mapped_controls)
                 record["mapped_controls"] = mapping["controls"]
-                record["mapped_frameworks"] = mapping["frameworks"]
+                record["mapped_frameworks"] = framework_mappings_for_controls(record.get("mapped_controls") or [])
 
             record["filename"] = original_name
             record["stored_filename"] = stored_name
@@ -182,7 +182,7 @@ def update_policy_mappings(policy_id: str, payload: dict):
         if record["policy_id"] == policy_id:
             mapping = mappings_for(selected)
             record["mapped_controls"] = mapping["controls"]
-            record["mapped_frameworks"] = mapping["frameworks"]
+            record["mapped_frameworks"] = framework_mappings_for_controls(record.get("mapped_controls") or [])
             record["updated_at"] = now()
             save_db(records)
             return record
