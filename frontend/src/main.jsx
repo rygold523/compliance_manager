@@ -505,7 +505,7 @@ function App() {
 
   async function refresh() {
     const [h, a, f, e, s, c, env, p, d, r, ctrl, cr, ar] = await Promise.all([
-      fetch(`${API}/api/health`).then(r => r.json()),
+      fetch(`${API}/api/health`).then(r => r.ok ? r.json() : Promise.reject(new Error("health check failed"))),
       fetch(`${API}/api/assets/`).then(r => r.json()),
       fetch(`${API}/api/findings/`).then(r => r.json()),
       fetch(`${API}/api/evidence/`).then(r => r.json()),

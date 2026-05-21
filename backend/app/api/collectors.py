@@ -9,6 +9,36 @@ from app.models import Asset, Evidence, CollectorRun
 from app.schemas.schemas import CollectorRunRequest
 from app.services.evidence_collectors import run_collector, COLLECTORS
 
+
+def run_post_collection_analysis_safely(db):
+    """
+    Best-effort post-collector analysis refresh.
+
+    This intentionally fails closed so collector execution does not break
+    if the analyzer module name changes.
+    """
+    candidates = [
+        ("app.services.finding_analyzer", "analyze_evidence_into_findings"),
+        ("app.services.evidence_analyzer", "analyze_evidence_into_findings"),
+        ("app.services.findings", "analyze_evidence_into_findings"),
+        ("app.api.findings", "analyze_evidence_into_findings"),
+    ]
+
+    for module_name, function_name in candidates:
+        try:
+            module = __import__(module_name, fromlist=[function_name])
+            fn = getattr(module, function_name, None)
+            if fn:
+                try:
+                    return fn(db)
+                except TypeError:
+                    return fn()
+        except Exception:
+            continue
+
+    return {"status": "skipped", "reason": "No analyzer function found"}
+
+
 router = APIRouter()
 
 @router.get("/")
