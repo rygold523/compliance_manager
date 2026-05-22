@@ -89,11 +89,29 @@ def _filter_by_environment(records, asset_ids):
     ]
 
 
+def _framework_values(raw, framework):
+    if not raw:
+        return []
+
+    if isinstance(raw, dict):
+        value = raw.get(framework, [])
+        if value is None:
+            return []
+        if isinstance(value, list):
+            return value
+        return [value]
+
+    if isinstance(raw, list):
+        return raw
+
+    return [raw]
+
+
 def _evidence_matches_requirement(ev, framework: str, requirement: dict) -> bool:
     return (
         ev.validated
         and ev.frameworks
-        and ev.frameworks.get(framework)
+        and _framework_values(ev.frameworks, framework)
         and ev.evidence_type in requirement["evidence_types"]
         and ev.control_id in requirement["controls"]
     )
@@ -104,8 +122,11 @@ def _failed_evidence_for_requirement(evidence: list, framework: str, requirement
         ev for ev in evidence
         if not ev.validated
         and ev.frameworks
-        and ev.frameworks.get(framework)
-        and (ev.evidence_type in requirement["evidence_types"] or ev.control_id in requirement["controls"])
+        and _framework_values(ev.frameworks, framework)
+        and (
+            ev.evidence_type in requirement["evidence_types"]
+            or ev.control_id in requirement["controls"]
+        )
     ]
 
 
@@ -125,9 +146,67 @@ def _finding_applies_to_requirement(finding, framework: str, requirement: dict) 
     return False
 
 
+def _record_timestamp(obj):
+    for attr in ("collected_at", "created_at", "updated_at", "id"):
+        value = getattr(obj, attr, None)
+        if value is not None:
+            return value
+    return ""
+
+
+def _latest_evidence_records(evidence: list) -> list:
+    latest = {}
+
+    for ev in evidence:
+        key = (
+            getattr(ev, "asset_id", None),
+            getattr(ev, "collector", None),
+            getattr(ev, "control_id", None),
+        )
+
+        if key not in latest or _record_timestamp(ev) > _record_timestamp(latest[key]):
+            latest[key] = ev
+
+    return list(latest.values())
+
+
+def _finding_evidence_id(finding):
+    raw = getattr(finding, "raw", None) or {}
+
+    if isinstance(raw, dict):
+        evidence_id = raw.get("evidence_id")
+        if evidence_id:
+            return evidence_id
+
+    finding_id = getattr(finding, "finding_id", "") or ""
+    parts = finding_id.split("-")
+
+    for i, part in enumerate(parts):
+        if part == "EV" and i + 1 < len(parts):
+            return f"EV-{parts[i + 1]}"
+
+    return None
+
+
+def _current_findings_only(findings: list, current_evidence_ids: set) -> list:
+    current = []
+
+    for finding in findings:
+        evidence_id = _finding_evidence_id(finding)
+
+        if evidence_id is None or evidence_id in current_evidence_ids:
+            current.append(finding)
+
+    return current
+
+
 def calculate_score(framework: str, db: Session, environment: str | None = None) -> dict:
     if framework not in FRAMEWORK_REQUIREMENTS:
-        return {"framework": framework, "label": framework_label(framework), "error": "Unknown framework"}
+        return {
+            "framework": framework,
+            "label": framework_label(framework),
+            "error": "Unknown framework",
+        }
 
     asset_ids = _asset_ids_for_environment(db, environment)
 
@@ -135,25 +214,60 @@ def calculate_score(framework: str, db: Session, environment: str | None = None)
     evidence = _filter_by_environment(db.query(Evidence).all(), asset_ids)
     findings = _filter_by_environment(db.query(Finding).all(), asset_ids)
 
+    evidence = _latest_evidence_records(evidence)
+
+    current_evidence_ids = {
+        ev.evidence_id
+        for ev in evidence
+        if getattr(ev, "evidence_id", None)
+    }
+
+    findings = [
+        f for f in findings
+        if getattr(f, "status", None) == "open"
+    ]
+
+    findings = _current_findings_only(findings, current_evidence_ids)
+
     requirement_results = []
     weighted_score = 0.0
 
     for requirement_name, requirement in profile["requirements"].items():
         weight = requirement["weight"]
 
-        matched_evidence = [ev for ev in evidence if _evidence_matches_requirement(ev, framework, requirement)]
-        failed_evidence = _failed_evidence_for_requirement(evidence, framework, requirement)
-        applicable_findings = [f for f in findings if _finding_applies_to_requirement(f, framework, requirement)]
+        matched_evidence = [
+            ev for ev in evidence
+            if _evidence_matches_requirement(ev, framework, requirement)
+        ]
+
+        failed_evidence = _failed_evidence_for_requirement(
+            evidence,
+            framework,
+            requirement,
+        )
+
+        applicable_findings = [
+            f for f in findings
+            if _finding_applies_to_requirement(f, framework, requirement)
+        ]
 
         base_completion = 100.0 if matched_evidence else 0.0
         failed_collector_penalty = min(len(failed_evidence) * 15, 40)
 
         finding_penalty = 0
         for finding in applicable_findings:
-            finding_penalty += SEVERITY_PENALTIES.get((finding.severity or "").lower(), 2)
+            finding_penalty += SEVERITY_PENALTIES.get(
+                (finding.severity or "").lower(),
+                2,
+            )
+
         finding_penalty = min(finding_penalty, 50)
 
-        requirement_score = max(0.0, base_completion - failed_collector_penalty - finding_penalty)
+        requirement_score = max(
+            0.0,
+            base_completion - failed_collector_penalty - finding_penalty,
+        )
+
         weighted_score += requirement_score * (weight / 100)
 
         requirement_results.append({
@@ -165,9 +279,36 @@ def calculate_score(framework: str, db: Session, environment: str | None = None)
             "matched_evidence_count": len(matched_evidence),
             "failed_evidence_count": len(failed_evidence),
             "open_findings_count": len(applicable_findings),
-            "matched_evidence": [{"evidence_id": ev.evidence_id, "asset_id": ev.asset_id, "collector": ev.collector, "control_id": ev.control_id, "validated": ev.validated} for ev in matched_evidence],
-            "failed_evidence": [{"evidence_id": ev.evidence_id, "asset_id": ev.asset_id, "collector": ev.collector, "control_id": ev.control_id, "validated": ev.validated} for ev in failed_evidence],
-            "open_findings": [{"finding_id": f.finding_id, "asset_id": f.asset_id, "severity": f.severity, "control_id": f.control_id, "status": f.status} for f in applicable_findings],
+            "matched_evidence": [
+                {
+                    "evidence_id": ev.evidence_id,
+                    "asset_id": ev.asset_id,
+                    "collector": ev.collector,
+                    "control_id": ev.control_id,
+                    "validated": ev.validated,
+                }
+                for ev in matched_evidence
+            ],
+            "failed_evidence": [
+                {
+                    "evidence_id": ev.evidence_id,
+                    "asset_id": ev.asset_id,
+                    "collector": ev.collector,
+                    "control_id": ev.control_id,
+                    "validated": ev.validated,
+                }
+                for ev in failed_evidence
+            ],
+            "open_findings": [
+                {
+                    "finding_id": f.finding_id,
+                    "asset_id": f.asset_id,
+                    "severity": f.severity,
+                    "control_id": f.control_id,
+                    "status": f.status,
+                }
+                for f in applicable_findings
+            ],
         })
 
     score = round(weighted_score, 2)
@@ -176,7 +317,11 @@ def calculate_score(framework: str, db: Session, environment: str | None = None)
         "framework": framework,
         "label": profile["label"],
         "environment": environment or "all",
-        "asset_scope_count": len(asset_ids) if asset_ids is not None else db.query(Asset).count(),
+        "asset_scope_count": (
+            len(asset_ids)
+            if asset_ids is not None
+            else db.query(Asset).count()
+        ),
         "readiness_score": score,
         "status": (
             "strong_readiness" if score >= 90 else
@@ -187,9 +332,18 @@ def calculate_score(framework: str, db: Session, environment: str | None = None)
         "requirements": requirement_results,
         "summary": {
             "total_requirements": len(requirement_results),
-            "requirements_with_evidence": len([r for r in requirement_results if r["matched_evidence_count"] > 0]),
-            "requirements_with_failed_collectors": len([r for r in requirement_results if r["failed_evidence_count"] > 0]),
-            "requirements_with_open_findings": len([r for r in requirement_results if r["open_findings_count"] > 0]),
+            "requirements_with_evidence": len([
+                r for r in requirement_results
+                if r["matched_evidence_count"] > 0
+            ]),
+            "requirements_with_failed_collectors": len([
+                r for r in requirement_results
+                if r["failed_evidence_count"] > 0
+            ]),
+            "requirements_with_open_findings": len([
+                r for r in requirement_results
+                if r["open_findings_count"] > 0
+            ]),
         },
     }
 
@@ -209,32 +363,51 @@ def list_environments(db: Session = Depends(get_db)):
 
 @router.get("/score")
 def all_scores(environment: str = "all", db: Session = Depends(get_db)):
-    return {fw: calculate_score(fw, db, environment=environment) for fw in FRAMEWORKS}
+    return {
+        fw: calculate_score(fw, db, environment=environment)
+        for fw in FRAMEWORKS
+    }
 
 
 @router.get("/score/{framework}")
-def framework_score(framework: str, environment: str = "all", db: Session = Depends(get_db)):
+def framework_score(
+    framework: str,
+    environment: str = "all",
+    db: Session = Depends(get_db),
+):
     return calculate_score(framework, db, environment=environment)
 
 
 @router.get("/findings/{framework}")
-def findings_by_framework(framework: str, environment: str = "all", db: Session = Depends(get_db)):
+def findings_by_framework(
+    framework: str,
+    environment: str = "all",
+    db: Session = Depends(get_db),
+):
     asset_ids = _asset_ids_for_environment(db, environment)
     findings = _filter_by_environment(db.query(Finding).all(), asset_ids)
 
     return [
         f for f in findings
-        if (f.framework_mappings and f.framework_mappings.get(framework))
-        or (f.affected_frameworks and framework in f.affected_frameworks)
+        if getattr(f, "status", None) == "open"
+        and (
+            (f.framework_mappings and f.framework_mappings.get(framework))
+            or (f.affected_frameworks and framework in f.affected_frameworks)
+        )
     ]
 
 
 @router.get("/evidence/{framework}")
-def evidence_by_framework(framework: str, environment: str = "all", db: Session = Depends(get_db)):
+def evidence_by_framework(
+    framework: str,
+    environment: str = "all",
+    db: Session = Depends(get_db),
+):
     asset_ids = _asset_ids_for_environment(db, environment)
     evidence = _filter_by_environment(db.query(Evidence).all(), asset_ids)
+    evidence = _latest_evidence_records(evidence)
 
     return [
         e for e in evidence
-        if e.frameworks and e.frameworks.get(framework)
+        if e.frameworks and _framework_values(e.frameworks, framework)
     ]
