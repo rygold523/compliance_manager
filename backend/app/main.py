@@ -1,11 +1,20 @@
+from app.api import role_collectors,
 from app.api import audit_readiness
+from app.api import role_collectors,
 from app.api import reports
+from app.api import role_collectors,
 from app.api import documents
+from app.api import role_collectors,
 from app.api import collector_mappings
+from app.api import role_collectors,
 from app.api import control_readiness
+from app.api import role_collectors,
 from app.api import controls
+from app.api import role_collectors,
 from app.api import windows_collectors
+from app.api import role_collectors,
 from app.api import remediations
+from app.api import role_collectors,
 from app.api import policies
 from fastapi import FastAPI
 from app.continuous_compliance.api.routes import router as continuous_compliance_router
@@ -75,3 +84,4 @@ app.include_router(continuous_compliance_router)
 app.include_router(continuous_compliance_reporting_router)
 app.include_router(continuous_compliance_state_router)
 app.include_router(report_pdf_router)
+app.include_router(role_collectors.router)
