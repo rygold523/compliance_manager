@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
+from sqlalchemy import MetaData, Table, select
 
-from app.core.database import get_db
+from app.core.database import get_db, engine
 from app.models import Evidence, Finding
 from app.services.control_catalog_v2 import CONTROL_CATALOG, CONTROL_STATUS_ORDER
 
@@ -9,6 +10,9 @@ router = APIRouter(prefix="/api/control-readiness-v2", tags=["control-readiness-
 
 
 def _safe_get(obj, attr, default=None):
+    if isinstance(obj, dict):
+        return obj.get(attr, default)
+
     return getattr(obj, attr, default)
 
 
@@ -108,32 +112,35 @@ def _finding_applies_to_control(finding, control_id):
     return _safe_get(finding, "control_id") == control_id
 
 
-def _objects_for_model(db, model_name):
+def _table_rows(table_name):
+    metadata = MetaData()
+
     try:
-        import app.models as models
-        model = getattr(models, model_name, None)
-        if model is None:
-            return []
-        return db.query(model).all()
+        table = Table(table_name, metadata, autoload_with=engine)
+    except Exception:
+        return []
+
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(select(table)).mappings().all()
+            return [dict(row) for row in rows]
     except Exception:
         return []
 
 
-def _normalize_text(value):
-    if value is None:
-        return ""
+def _objects_for_model(db, model_name):
+    # Legacy compatibility. Current policy/document storage is table-based.
+    model_table_map = {
+        "Policy": ["evidence_policies", "evidence_policy_requirements"],
+        "Document": ["regulatory_documents"],
+    }
 
-    if isinstance(value, (list, tuple, set)):
-        return " ".join(_normalize_text(v) for v in value)
+    rows = []
 
-    if isinstance(value, dict):
-        return " ".join(
-            f"{_normalize_text(k)} {_normalize_text(v)}"
-            for k, v in value.items()
-        )
+    for table_name in model_table_map.get(model_name, []):
+        rows.extend(_table_rows(table_name))
 
-    return str(value)
-
+    return rows
 
 def _object_references_control(obj, control_id):
     direct_attrs = [
