@@ -1052,6 +1052,15 @@ async function deployAgent() {
         </table>
       </Section>
 
+
+        <div className="page-tabs">
+          <button className={activePage === "dashboard" ? "active" : ""} onClick={() => setActivePage("dashboard")}>Dashboard</button>
+          <button className={activePage === "assets" ? "active" : ""} onClick={() => setActivePage("assets")}>Asset Details</button>
+          <button className={activePage === "collectors" ? "active" : ""} onClick={() => setActivePage("collectors")}>Collectors</button>
+        </div>
+
+        {activePage === "dashboard" && (
+        <>
         <Section title={`Assets (${assets.length})`}>
           <div className="section-actions">
             <button onClick={() => openAgentModal("deploy")}>Deploy Agent</button>
@@ -1383,6 +1392,9 @@ async function deployAgent() {
           />
         </Section>
 
+
+        </>
+        )}
 
         {activePage === "assets" && (
           <Section title={`Asset Details (${assetDetails.assets?.length || 0})`}>
