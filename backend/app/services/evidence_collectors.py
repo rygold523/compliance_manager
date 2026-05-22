@@ -32,8 +32,18 @@ COLLECTORS = {
         "control_ids": ["NS-01", "CM-01"],
         "frameworks": {"pci_dss": ["1.2", "2.2"], "soc2": ["CC6.6", "CC8.1"], "nist_800_53": ["SC-7", "CM-6"], "iso_27001": ["A.8.20", "A.8.9"], "iso_27002": ["8.20", "8.9"]},
     },
+    "os_inventory": {
+        "command": "printf 'KERNEL_VERSION='; uname -r; cat /etc/os-release 2>/dev/null || true",
+        "control_ids": ["AM-01", "CM-01"],
+        "frameworks": {"pci_dss": ["12.5"], "soc2": ["CC6.1", "CC8.1"], "nist_800_53": ["CM-8"], "iso_27001": ["A.5.9"], "iso_27002": ["5.9"]},
+    },
+    "apt_policy": {
+        "command": "apt-cache policy $(dpkg-query -W -f='${binary:Package} ' 2>/dev/null) 2>/dev/null | head -20000",
+        "control_ids": ["VM-01", "AM-04"],
+        "frameworks": {"pci_dss": ["6.3.3"], "soc2": ["CC7.1", "CC8.1"], "nist_800_53": ["RA-5", "CM-8"], "iso_27001": ["A.8.8", "A.8.9"], "iso_27002": ["8.8", "8.9"]},
+    },
     "packages": {
-        "command": "dpkg -l | head -500",
+        "command": "dpkg -l",
         "control_ids": ["VM-01", "CM-01"],
         "frameworks": {"pci_dss": ["6.3.3", "11.3.1"], "soc2": ["CC7.1", "CC8.1"], "nist_800_53": ["RA-5", "CM-8"], "iso_27001": ["A.8.8", "A.8.9"], "iso_27002": ["8.8", "8.9"]},
     },

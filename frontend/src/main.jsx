@@ -497,10 +497,15 @@ function App() {
     username: "",
     password: "",
     port: 22,
-    environment: "test"
+    environment: "test",
+    os_family: "ubuntu",
+    asset_roles: [],
+    data_classification: []
   };
 
   const [showDeployModal, setShowDeployModal] = useState(false);
+  const [activePage, setActivePage] = useState("dashboard");
+  const [assetDetails, setAssetDetails] = useState({ assets: [] });
   const [agentMode, setAgentMode] = useState("deploy");
   const [agentForm, setAgentForm] = useState(emptyAgentForm);
 
@@ -544,6 +549,15 @@ function App() {
     setDocuments(Array.isArray(d) ? d : []);
     setRemediations(Array.isArray(r) ? r : []);
     setControls(Array.isArray(ctrl) ? ctrl : []);
+
+    try {
+      const assetDetailsResponse = await fetch(`${API}/api/asset-details/`);
+      if (assetDetailsResponse.ok) {
+        setAssetDetails(await assetDetailsResponse.json());
+      }
+    } catch (error) {
+      console.error("Failed to load asset details", error);
+    }
     setCollectorCoverage(cc || { summary: {}, collectors: [] });
   }
 
@@ -602,8 +616,9 @@ async function deployAgent() {
     const payload = {
       ...agentForm,
       port: Number(agentForm.port),
-      role: ["ubuntu", "managed_target"],
+      role: [agentForm.os_family || "ubuntu", "managed_target"],
       compliance_scope: ["pci_dss", "soc2", "nist_800_53", "iso_27001", "iso_27002"],
+      os_family: agentForm.os_family || "ubuntu",
       asset_roles: [],
       data_classification: []
     };
@@ -625,7 +640,7 @@ async function deployAgent() {
     const payload = {
       ...agentForm,
       port: Number(agentForm.port),
-      role: ["ubuntu", "managed_target"],
+      role: [agentForm.os_family || "ubuntu", "managed_target"],
       compliance_scope: ["pci_dss", "soc2", "nist_800_53", "iso_27001", "iso_27002"]
     };
 
@@ -646,7 +661,7 @@ async function deployAgent() {
     const payload = {
       ...agentForm,
       port: Number(agentForm.port),
-      role: ["ubuntu", "managed_target"],
+      role: [agentForm.os_family || "ubuntu", "managed_target"],
       compliance_scope: ["pci_dss", "soc2", "nist_800_53", "iso_27001", "iso_27002"]
     };
 
@@ -1368,6 +1383,42 @@ async function deployAgent() {
           />
         </Section>
 
+
+        {activePage === "assets" && (
+          <Section title={`Asset Details (${assetDetails.assets?.length || 0})`}>
+            <DataTable
+              columns={[
+                { key: "asset_id", label: "Asset ID" },
+                { key: "hostname", label: "Hostname" },
+                { key: "environment", label: "Environment" },
+                { key: "os_family", label: "OS Family" },
+                { key: "os_name", label: "OS" },
+                { key: "os_version", label: "OS Version" },
+                { key: "kernel_version", label: "Kernel" },
+                { key: "package_count", label: "Packages" },
+                { key: "packages_with_updates", label: "Updates Available" },
+                { key: "packages_unknown_latest", label: "Unknown Latest" },
+                {
+                  key: "details",
+                  label: "Details",
+                  render: (r) => (
+                    <button
+                      onClick={() => {
+                        setModalTitle(`Asset Details: ${r.asset_id}`);
+                        setModalData(r.packages || []);
+                      }}
+                    >
+                      Packages
+                    </button>
+                  )
+                }
+              ]}
+              rows={assetDetails.assets || []}
+            />
+          </Section>
+        )}
+
+        {activePage === "collectors" && (
         <Section title={`Collectors (${collectors.length})`}>
           <DataTable
             columns={[
@@ -1390,11 +1441,16 @@ async function deployAgent() {
           />
         </Section>
 
+
+        )}
+
+        {activePage === "dashboard" && (
         <Section title="Chat">
           <textarea value={chatMessage} onChange={e => setChatMessage(e.target.value)} placeholder="Discuss assets, findings, evidence, or compliance..." />
           <button onClick={sendChat}>Send</button>
           <pre>{chatResponse}</pre>
         </Section>
+        )}
       </div>
 
       {showDeployModal && (
@@ -1412,19 +1468,40 @@ async function deployAgent() {
             <label>Asset ID</label>
             <input value={agentForm.asset_id} onChange={e => setAgentForm({...agentForm, asset_id: e.target.value})} placeholder="test_vm" />
 
+
+            <label>Operating System</label>
+            <select
+              value={agentForm.os_family || "ubuntu"}
+              onChange={e => {
+                const os = e.target.value;
+
+                setAgentForm({
+                  ...agentForm,
+                  os_family: os,
+                  port: os === "windows" ? 5985 : 22,
+                  username: os === "windows"
+                    ? "Administrator"
+                    : agentForm.username
+                });
+              }}
+            >
+              <option value="ubuntu">Ubuntu / Linux</option>
+              <option value="windows">Windows</option>
+            </select>
+
             <label>Hostname</label>
             <input value={agentForm.hostname} onChange={e => setAgentForm({...agentForm, hostname: e.target.value})} placeholder="testing" />
 
             <label>Hostname/IP Address</label>
             <input value={agentForm.address} onChange={e => setAgentForm({...agentForm, address: e.target.value})} placeholder="192.168.1.124" />
 
-            <label>SSH Username</label>
+            <label>{agentForm.os_family === "windows" ? "Windows Username" : "SSH Username"}</label>
             <input value={agentForm.username} onChange={e => setAgentForm({...agentForm, username: e.target.value})} placeholder="test" />
 
-            <label>SSH Password</label>
+            <label>{agentForm.os_family === "windows" ? "Windows Password" : "SSH Password"}</label>
             <input type="password" value={agentForm.password} onChange={e => setAgentForm({...agentForm, password: e.target.value})} />
 
-            <label>SSH Port</label>
+            <label>{agentForm.os_family === "windows" ? "WinRM Port" : "SSH Port"}</label>
             <input value={agentForm.port} onChange={e => setAgentForm({...agentForm, port: e.target.value})} placeholder="22" />
 
             <label>Environment</label>
