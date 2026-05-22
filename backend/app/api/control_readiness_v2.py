@@ -119,31 +119,111 @@ def _objects_for_model(db, model_name):
         return []
 
 
+def _normalize_text(value):
+    if value is None:
+        return ""
+
+    if isinstance(value, (list, tuple, set)):
+        return " ".join(_normalize_text(v) for v in value)
+
+    if isinstance(value, dict):
+        return " ".join(
+            f"{_normalize_text(k)} {_normalize_text(v)}"
+            for k, v in value.items()
+        )
+
+    return str(value)
+
+
 def _object_references_control(obj, control_id):
-    possible_attrs = [
+    direct_attrs = [
         "control_id",
         "control",
         "controls",
         "control_ids",
         "mapped_controls",
         "associated_controls",
+        "control_mappings",
+        "framework_controls",
     ]
 
-    for attr in possible_attrs:
+    for attr in direct_attrs:
         value = _safe_get(obj, attr)
+
         if value == control_id:
             return True
+
         if control_id in _as_list(value):
             return True
 
-    raw = _safe_get(obj, "raw")
-    if isinstance(raw, dict):
-        for value in raw.values():
-            if value == control_id or control_id in _as_list(value):
+        if isinstance(value, dict):
+            if control_id in value.keys():
                 return True
+
+            for nested_value in value.values():
+                if control_id in _as_list(nested_value):
+                    return True
+
+    searchable_attrs = [
+        "title",
+        "name",
+        "description",
+        "content",
+        "body",
+        "text",
+        "summary",
+        "filename",
+        "file_name",
+        "document_type",
+        "policy_type",
+        "raw",
+        "metadata",
+    ]
+
+    searchable_text = " ".join(
+        _normalize_text(_safe_get(obj, attr))
+        for attr in searchable_attrs
+    ).lower()
+
+    control_id_lower = control_id.lower()
+
+    if control_id_lower in searchable_text:
+        return True
+
+    control_keywords = {
+        "AC-01": ["mfa", "multi-factor", "multifactor", "authentication"],
+        "AC-02": ["identity", "access management", "user account", "account management"],
+        "AC-04": ["privileged access", "sudo", "administrator", "admin access"],
+        "AC-05": ["provisioning", "user access provisioning", "new user access"],
+        "AC-06": ["deprovisioning", "termination", "access removal", "remove access"],
+        "AC-07": ["access review", "periodic access", "access recertification"],
+        "AM-01": ["asset inventory", "asset management"],
+        "AM-02": ["asset owner", "asset ownership", "system owner"],
+        "AM-03": ["classification", "data sensitivity", "data classification"],
+        "AM-04": ["software inventory", "software asset", "installed software"],
+        "CM-01": ["baseline configuration", "secure configuration"],
+        "CM-02": ["change management", "configuration change", "change control"],
+        "CM-03": ["configuration review", "secure configuration review"],
+        "CP-01": ["backup", "recovery", "business continuity", "disaster recovery"],
+        "IR-01": ["incident response", "security incident", "incident handling"],
+        "NS-01": ["network security", "firewall", "network segmentation"],
+        "SD-01": ["secure development", "sdlc", "deployment", "change deployment"],
+        "SI-01": ["logging", "monitoring", "audit log", "security monitoring"],
+        "VM-01": ["vulnerability", "patch management", "security update"],
+    }
+
+    for keyword in control_keywords.get(control_id, []):
+        if keyword in searchable_text:
+            return True
 
     return False
 
+
+def _documentation_evidence_for_control(db, control_id):
+    policy_count = _policy_count(db, control_id)
+    document_count = _document_count(db, control_id)
+
+    return policy_count, document_count
 
 def _policy_count(db, control_id):
     policies = _objects_for_model(db, "Policy")
@@ -198,8 +278,7 @@ def control_readiness_v2(db: Session = Depends(get_db)):
         definition = dict(control)
         definition["control_id"] = control_id
 
-        policy_count = _policy_count(db, control_id)
-        document_count = _document_count(db, control_id)
+        policy_count, document_count = _documentation_evidence_for_control(db, control_id)
 
         status, score = _status_for_control(
             definition,
