@@ -72,6 +72,39 @@ COLLECTORS = {
         "control_ids": ["CM-01", "VM-01"],
         "frameworks": {"pci_dss": ["2.2", "6.3.3"], "soc2": ["CC7.1", "CC8.1"], "nist_800_53": ["CM-8", "RA-5"], "iso_27001": ["A.8.8", "A.8.9"], "iso_27002": ["8.8", "8.9"]},
     },
+    "duo_mfa_linux": {
+        "command": "if [ -f /etc/pam.d/sshd ] && grep -qi duo /etc/pam.d/sshd; then echo 'DUO_MFA_PRESENT'; else echo 'DUO_MFA_NOT_PRESENT'; fi",
+        "control_ids": ["AC-01"],
+        "frameworks": {
+            "pci_dss": ["8.4"],
+            "soc2": ["CC6.1"],
+            "nist_800_53": ["IA-2"],
+            "iso_27001": ["A.5.17"],
+            "iso_27002": ["5.17"]
+        },
+    },
+    "automox_amagent": {
+        "command": "if systemctl list-units --type=service --all | grep -qi amagent; then echo 'AUTOMOX_PRESENT'; else echo 'AUTOMOX_NOT_PRESENT'; fi",
+        "control_ids": ["VM-02"],
+        "frameworks": {
+            "pci_dss": ["6.3.3"],
+            "soc2": ["CC7.1"],
+            "nist_800_53": ["SI-2"],
+            "iso_27001": ["A.8.8"],
+            "iso_27002": ["8.8"]
+        },
+    },
+    "trend_micro_ds_agent": {
+        "command": "if systemctl list-units --type=service --all | grep -Eqi 'ds_agent|trend'; then echo 'TREND_MICRO_PRESENT'; else echo 'TREND_MICRO_NOT_PRESENT'; fi",
+        "control_ids": ["SI-03"],
+        "frameworks": {
+            "pci_dss": ["5.2"],
+            "soc2": ["CC7.2"],
+            "nist_800_53": ["SI-3"],
+            "iso_27001": ["A.8.7"],
+            "iso_27002": ["8.7"]
+        },
+    },
 }
 
 
@@ -92,5 +125,10 @@ def run_collector(asset, collector_name: str) -> dict:
         "stdout": result.get("stdout", ""),
         "stderr": result.get("stderr", ""),
         "exit_code": result.get("exit_code"),
-        "status": "completed" if result.get("exit_code") == 0 else "failed",
+        "status": (
+           "completed"
+           if result.get("exit_code") == 0
+           and "NOT_PRESENT" not in result.get("stdout", "")
+           else "failed"
+         ),
     }
