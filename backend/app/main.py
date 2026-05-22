@@ -29,6 +29,7 @@ from app.api.reports import router as reports_router
 from app.api.scanners import router as scanners_router
 from app.api.report_pdf import router as report_pdf_router
 from app.api.control_readiness_v2 import router as control_readiness_v2_router
+from app.api.collector_coverage import router as collector_coverage_router
 from app.core.database import Base, engine
 
 Base.metadata.create_all(bind=engine)
@@ -81,3 +82,4 @@ app.include_router(report_pdf_router)
 app.include_router(role_collectors.router)
 app.include_router(role_dashboard.router)
 app.include_router(control_readiness_v2_router)
+app.include_router(collector_coverage_router)

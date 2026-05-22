@@ -47,23 +47,100 @@ def list_collectors():
 
 @router.post("/run")
 def run_collectors(payload: CollectorRunRequest, db: Session = Depends(get_db)):
+    if payload.asset_id == "all":
+        assets = [
+            asset for asset in db.query(Asset).all()
+            if "deployed" in ((asset.agent_status or "").lower())
+        ]
+
+        if not assets:
+            raise HTTPException(status_code=404, detail="No deployed assets found")
+
+        all_results = []
+
+        for asset in assets:
+            asset_results = []
+
+            for collector_name in payload.collectors:
+                run_id = f"COL-{uuid4().hex[:12].upper()}"
+                output = run_collector(asset, collector_name)
+
+                db.add(CollectorRun(
+                    run_id=run_id,
+                    asset_id=asset.asset_id,
+                    collector=collector_name,
+                    status=output["status"],
+                    output=output,
+                ))
+
+                evidence_id = f"EV-{uuid4().hex[:12].upper()}"
+                evidence_dir = Path(settings.evidence_root) / asset.asset_id / collector_name
+                evidence_dir.mkdir(parents=True, exist_ok=True)
+                evidence_path = evidence_dir / f"{evidence_id}.json"
+                evidence_path.write_text(json.dumps(output, indent=2, default=str))
+
+                control_id = output.get("control_ids", [None])[0]
+
+                db.add(Evidence(
+                    evidence_id=evidence_id,
+                    asset_id=asset.asset_id,
+                    control_id=control_id,
+                    filename=evidence_path.name,
+                    file_path=str(evidence_path),
+                    source="collector",
+                    description=f"Collector output for {collector_name}",
+                    collector=collector_name,
+                    evidence_type=collector_name,
+                    frameworks=output.get("frameworks", {}),
+                    validated=output.get("status") == "completed",
+                ))
+
+                asset_results.append({
+                    "run_id": run_id,
+                    "evidence_id": evidence_id,
+                    "collector": collector_name,
+                    "status": output["status"],
+                })
+
+            all_results.append({
+                "asset_id": asset.asset_id,
+                "results": asset_results,
+            })
+
+        db.commit()
+
+        return {
+            "asset_id": "all",
+            "asset_count": len(assets),
+            "results": all_results,
+        }
+
     asset = db.query(Asset).filter(Asset.asset_id == payload.asset_id).first()
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
 
     results = []
+
     for collector_name in payload.collectors:
         run_id = f"COL-{uuid4().hex[:12].upper()}"
         output = run_collector(asset, collector_name)
-        db.add(CollectorRun(run_id=run_id, asset_id=asset.asset_id, collector=collector_name, status=output["status"], output=output))
+
+        db.add(CollectorRun(
+            run_id=run_id,
+            asset_id=asset.asset_id,
+            collector=collector_name,
+            status=output["status"],
+            output=output,
+        ))
 
         evidence_id = f"EV-{uuid4().hex[:12].upper()}"
         evidence_dir = Path(settings.evidence_root) / asset.asset_id / collector_name
-        evidence_dir.mkdir(parents=True, exist_ok=True)
+        evidence_dir.mkdir(parents=True)
         evidence_path = evidence_dir / f"{evidence_id}.json"
         evidence_path.write_text(json.dumps(output, indent=2, default=str))
 
         control_id = output.get("control_ids", [None])[0]
+
         db.add(Evidence(
             evidence_id=evidence_id,
             asset_id=asset.asset_id,
@@ -77,6 +154,17 @@ def run_collectors(payload: CollectorRunRequest, db: Session = Depends(get_db)):
             frameworks=output.get("frameworks", {}),
             validated=output.get("status") == "completed",
         ))
-        results.append({"run_id": run_id, "evidence_id": evidence_id, "collector": collector_name, "status": output["status"]})
+
+        results.append({
+            "run_id": run_id,
+            "evidence_id": evidence_id,
+            "collector": collector_name,
+            "status": output["status"],
+        })
+
     db.commit()
-    return {"asset_id": asset.asset_id, "results": results}
+
+    return {
+        "asset_id": asset.asset_id,
+        "results": results,
+    }

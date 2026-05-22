@@ -473,6 +473,7 @@ function App() {
   const [selectedEnvironment, setSelectedEnvironment] = useState("all");
   const [collectors, setCollectors] = useState([]);
   const [policies, setPolicies] = useState([]);
+  const [collectorCoverage, setCollectorCoverage] = useState(null);
   const [documents, setDocuments] = useState([]);
   const [controls, setControls] = useState([]);
   const [controlReadiness, setControlReadiness] = useState({ summary: {}, framework_scores: {}, controls: [] });
@@ -504,7 +505,7 @@ function App() {
   const [agentForm, setAgentForm] = useState(emptyAgentForm);
 
   async function refresh() {
-    const [h, a, f, e, s, c, env, p, d, r, ctrl, cr, ar] = await Promise.all([
+    const [h, a, f, e, s, c, env, p, d, r, ctrl, cr, ar, cc] = await Promise.all([
       fetch(`${API}/api/health`).then(r => r.ok ? r.json() : Promise.reject(new Error("health check failed"))),
       fetch(`${API}/api/assets/`).then(r => r.json()),
       fetch(`${API}/api/findings/`).then(r => r.json()),
@@ -517,7 +518,8 @@ function App() {
       fetch(`${API}/api/remediations/`).then(r => r.json()).catch(() => []),
       fetch(`${API}/api/controls/`).then(r => r.json()).catch(() => []),
       fetch(`${API}/api/compliance/control-readiness/`).then(r => r.json()).catch(() => ({ summary: {}, framework_scores: {}, controls: [] })),
-      fetch(`${API}/api/audit-readiness/`).then(r => r.json()).catch(() => ({ frameworks: [] }))
+      fetch(`${API}/api/audit-readiness/`).then(r => r.json()).catch(() => ({ frameworks: [] })),
+      fetch(`${API}/api/collector-coverage/`).then(r => r.json()).catch(() => ({ summary: {}, collectors: [] }))
     ]);
 
     const filteredFindings = filterStaleFindings(Array.isArray(f) ? f : [], Array.isArray(e) ? e : []);
@@ -542,6 +544,7 @@ function App() {
     setDocuments(Array.isArray(d) ? d : []);
     setRemediations(Array.isArray(r) ? r : []);
     setControls(Array.isArray(ctrl) ? ctrl : []);
+    setCollectorCoverage(cc || { summary: {}, collectors: [] });
   }
 
   async function runCollectors(asset_id) {
@@ -1112,6 +1115,54 @@ async function deployAgent() {
             </button>
           ))}
         </Section>
+
+
+        {collectorCoverage && Array.isArray(collectorCoverage.collectors) && collectorCoverage.collectors.length > 0 && (
+          <Section title="Collector Coverage Gaps">
+            <p>
+              These collectors are expected to run against every deployed managed asset. A missing collector run means the dashboard cannot claim environment-wide validation for the related control.
+            </p>
+
+            <div className="stats-grid">
+              <div className="stat">
+                <span>Fully Covered</span>
+                <strong>{collectorCoverage.summary?.covered ?? 0}</strong>
+              </div>
+              <div className="stat">
+                <span>Coverage Gaps</span>
+                <strong>{collectorCoverage.summary?.coverage_gap ?? 0}</strong>
+              </div>
+              <div className="stat">
+                <span>Collector Failures</span>
+                <strong>{collectorCoverage.summary?.collector_failures ?? 0}</strong>
+              </div>
+            </div>
+
+            <DataTable
+              columns={[
+                { key: "title", label: "Collector" },
+                { key: "control_id", label: "Control" },
+                { key: "status", label: "Status" },
+                {
+                  key: "covered_assets",
+                  label: "Covered Assets",
+                  render: (value) => Array.isArray(value) && value.length ? value.join(", ") : "-"
+                },
+                {
+                  key: "missing_assets",
+                  label: "Missing Assets",
+                  render: (value) => Array.isArray(value) && value.length ? value.join(", ") : "-"
+                },
+                {
+                  key: "failed_assets",
+                  label: "Failed Assets",
+                  render: (value) => Array.isArray(value) && value.length ? value.join(", ") : "-"
+                }
+              ]}
+              rows={collectorCoverage.collectors}
+            />
+          </Section>
+        )}
 
         <Section title={`Current Evidence (${evidence.length})`}>
           {Object.entries(groupByAsset(evidence)).map(([asset, items]) => (
