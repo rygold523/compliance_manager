@@ -1,3 +1,4 @@
+from app.api import role_dashboard
 from app.api import role_collectors
 from app.api import audit_readiness
 from app.api import reports
@@ -27,6 +28,7 @@ from app.api.compliance import router as compliance_router
 from app.api.reports import router as reports_router
 from app.api.scanners import router as scanners_router
 from app.api.report_pdf import router as report_pdf_router
+from app.api.control_readiness_v2 import router as control_readiness_v2_router
 from app.core.database import Base, engine
 
 Base.metadata.create_all(bind=engine)
@@ -77,3 +79,5 @@ app.include_router(continuous_compliance_reporting_router)
 app.include_router(continuous_compliance_state_router)
 app.include_router(report_pdf_router)
 app.include_router(role_collectors.router)
+app.include_router(role_dashboard.router)
+app.include_router(control_readiness_v2_router)
