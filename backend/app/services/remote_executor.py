@@ -9,6 +9,7 @@ BLOCKED_PATTERNS = [
 ]
 
 ALLOWED_PREFIXES = [
+    "cat /etc/os-release",
     "hostname", "hostnamectl", "lsb_release", "uname", "uptime", "df", "free",
     "ip", "ss", "apt-mark showhold", "apt-cache policy", "apt list --upgradable",
     "dpkg -l", "timedatectl", "sudo apt-mark", "sudo apt-cache",
