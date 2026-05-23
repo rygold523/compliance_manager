@@ -575,18 +575,22 @@ function App() {
   function openAgentModal(mode, asset = null) {
     setAgentMode(mode);
 
-    if (mode === "deploy") {
-      setAgentForm({ ...emptyAgentForm });
-    } else {
+    if (asset) {
       setAgentForm({
-        asset_id: asset?.asset_id || "",
-        hostname: asset?.hostname || "",
-        address: asset?.address || "",
-        username: "",
+        ...emptyAgentForm,
+        asset_id: asset.asset_id || "",
+        hostname: asset.hostname || "",
+        address: asset.address || "",
+        username: asset.ssh_user || asset.username || "",
         password: "",
-        port: asset?.ssh_port || 22,
-        environment: asset?.environment || "test"
+        port: asset.ssh_port || asset.port || ((asset.os_family || "").toLowerCase().includes("win") ? 5985 : 22),
+        environment: asset.environment || "test",
+        os_family: asset.os_family || "ubuntu",
+        asset_roles: Array.isArray(asset.asset_roles) ? asset.asset_roles : [],
+        data_classification: Array.isArray(asset.data_classification) ? asset.data_classification : []
       });
+    } else {
+      setAgentForm({ ...emptyAgentForm });
     }
 
     setShowDeployModal(true);
