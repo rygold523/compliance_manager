@@ -98,11 +98,27 @@ def _parse_apt_policy(output):
     return package_map
 
 
-def _merge_package_status(packages, apt_policy):
+def _parse_held_packages(output):
+    return {
+        line.strip()
+        for line in str(output).splitlines()
+        if line.strip()
+    }
+
+
+def _merge_package_status(packages, apt_policy, held_packages):
     merged = []
 
     for pkg in packages:
-        info = apt_policy.get(pkg["name"], {})
+        package_name = pkg["name"]
+        normalized_name = package_name.split(":", 1)[0]
+
+        info = (
+            apt_policy.get(package_name)
+            or apt_policy.get(normalized_name)
+            or {}
+        )
+
         candidate = info.get("candidate") or "Latest version information not available"
         installed = pkg["installed_version"]
 
@@ -118,6 +134,7 @@ def _merge_package_status(packages, apt_policy):
             "installed_version": installed,
             "latest_candidate": candidate,
             "update_available": update_available,
+            "held": "yes" if pkg["name"] in held_packages else "no",
         })
 
     return merged
@@ -131,11 +148,13 @@ def list_asset_details(db: Session = Depends(get_db)):
         os_ev = _latest_evidence(db, asset.asset_id, "os_inventory")
         packages_ev = _latest_evidence(db, asset.asset_id, "packages")
         apt_policy_ev = _latest_evidence(db, asset.asset_id, "apt_policy")
+        held_packages_ev = _latest_evidence(db, asset.asset_id, "held_packages")
 
         os_info = _parse_os_release(_read_output(os_ev))
         packages = _parse_dpkg(_read_output(packages_ev))
         apt_policy = _parse_apt_policy(_read_output(apt_policy_ev))
-        package_status = _merge_package_status(packages, apt_policy)
+        held_packages = _parse_held_packages(_read_output(held_packages_ev))
+        package_status = _merge_package_status(packages, apt_policy, held_packages)
 
         results.append({
             "asset_id": asset.asset_id,
@@ -150,6 +169,7 @@ def list_asset_details(db: Session = Depends(get_db)):
             "package_count": len(package_status),
             "packages_with_updates": len([p for p in package_status if p["update_available"] == "yes"]),
             "packages_unknown_latest": len([p for p in package_status if p["update_available"] == "unknown"]),
+            "held_packages": len([p for p in package_status if p["held"] == "yes"]),
             "packages": package_status,
         })
 
