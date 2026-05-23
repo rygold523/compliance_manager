@@ -208,7 +208,7 @@ function renderCurrentState(currentState) {
 
 
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
 import ContinuousComplianceState from "./pages/continuous-compliance/ContinuousComplianceState.jsx";
@@ -276,6 +276,28 @@ function normalizeComplianceScores(scorePayload) {
 }
 
 const API = import.meta.env.VITE_API_BASE_URL || `${window.location.protocol}//${window.location.hostname}:8000`;
+
+
+const DASHBOARD_CACHE_KEY = "compliance_manager_dashboard_cache_v1";
+
+function loadDashboardCache() {
+  try {
+    return JSON.parse(localStorage.getItem(DASHBOARD_CACHE_KEY) || "null");
+  } catch {
+    return null;
+  }
+}
+
+function saveDashboardCache(data) {
+  try {
+    localStorage.setItem(DASHBOARD_CACHE_KEY, JSON.stringify({
+      ...data,
+      cached_at: new Date().toISOString()
+    }));
+  } catch {
+    // Ignore browser storage failures.
+  }
+}
 
 const ASSET_ROLE_OPTIONS = [
   "application_server",
@@ -505,11 +527,36 @@ function App() {
 
   const [showDeployModal, setShowDeployModal] = useState(false);
   const [activePage, setActivePage] = useState("dashboard");
+  const cacheHydratedRef = useRef(false);
   const [assetDetails, setAssetDetails] = useState({ assets: [] });
   const [agentMode, setAgentMode] = useState("deploy");
   const [agentForm, setAgentForm] = useState(emptyAgentForm);
 
   async function refresh() {
+    if (!cacheHydratedRef.current) {
+      const cached = loadDashboardCache();
+
+      if (cached) {
+        setHealth(cached.health || { status: "cached" });
+        setAssets(Array.isArray(cached.assets) ? cached.assets : []);
+        setFindings(Array.isArray(cached.findings) ? cached.findings : []);
+        setEvidence(Array.isArray(cached.evidence) ? cached.evidence : []);
+        setScores(cached.scores || {});
+        setCollectors(Array.isArray(cached.collectors) ? cached.collectors : []);
+        setEnvironments(Array.isArray(cached.environments) ? cached.environments : ["all"]);
+        setPolicies(Array.isArray(cached.policies) ? cached.policies : []);
+        setDocuments(Array.isArray(cached.documents) ? cached.documents : []);
+        setRemediations(Array.isArray(cached.remediations) ? cached.remediations : []);
+        setControls(Array.isArray(cached.controls) ? cached.controls : []);
+        setControlReadiness(cached.controlReadiness || { summary: {}, framework_scores: {}, controls: [] });
+        setAuditReadiness(cached.auditReadiness || { frameworks: [] });
+        setCollectorCoverage(cached.collectorCoverage || { summary: {}, collectors: [] });
+        setAssetDetails(cached.assetDetails || { assets: [] });
+      }
+
+      cacheHydratedRef.current = true;
+    }
+
     const [h, a, f, e, s, c, env, p, d, r, ctrl, cr, ar, cc] = await Promise.all([
       fetch(`${API}/api/health`).then(r => r.ok ? r.json() : Promise.reject(new Error("health check failed"))),
       fetch(`${API}/api/assets/`).then(r => r.json()),
@@ -549,6 +596,24 @@ function App() {
     setDocuments(Array.isArray(d) ? d : []);
     setRemediations(Array.isArray(r) ? r : []);
     setControls(Array.isArray(ctrl) ? ctrl : []);
+
+    saveDashboardCache({
+      health: h,
+      assets: Array.isArray(a) ? a : [],
+      findings: filteredFindings,
+      evidence: Array.isArray(e) ? e : [],
+      scores: mergedScores,
+      collectors: c.collectors || [],
+      environments: env.environments || ["all"],
+      policies: Array.isArray(p) ? p : [],
+      documents: Array.isArray(d) ? d : [],
+      remediations: Array.isArray(r) ? r : [],
+      controls: Array.isArray(ctrl) ? ctrl : [],
+      controlReadiness: cr || { summary: {}, framework_scores: {}, controls: [] },
+      auditReadiness: ar || { frameworks: [] },
+      collectorCoverage: typeof cc !== "undefined" ? cc : { summary: {}, collectors: [] },
+      assetDetails
+    });
 
     try {
       const assetDetailsResponse = await fetch(`${API}/api/asset-details/`);
