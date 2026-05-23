@@ -9,6 +9,8 @@ BLOCKED_PATTERNS = [
 ]
 
 ALLOWED_PREFIXES = [
+    "sudo apt-mark unhold",
+    "sudo apt-get install --only-upgrade -y",
     "cat /etc/os-release",
     "hostname", "hostnamectl", "lsb_release", "uname", "uptime", "df", "free",
     "ip", "ss", "apt-mark showhold", "apt-cache policy", "apt list --upgradable",

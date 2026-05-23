@@ -490,6 +490,7 @@ function App() {
   const [evidence, setEvidence] = useState([]);
   const [modalData, setModalData] = useState(null);
   const [modalTitle, setModalTitle] = useState("");
+  const [packageUpdateConfirm, setPackageUpdateConfirm] = useState(null);
   const [scores, setScores] = useState({});
   const [environments, setEnvironments] = useState(["all"]);
   const [selectedEnvironment, setSelectedEnvironment] = useState("all");
@@ -757,6 +758,44 @@ async function deployAgent() {
     }).then(r => r.json());
 
     alert(JSON.stringify(res, null, 2));
+    await refresh();
+  }
+
+
+  function requestPackageUpdate(assetId, pkg) {
+    if (!pkg || pkg.update_available !== "yes") return;
+
+    setPackageUpdateConfirm({
+      asset_id: assetId,
+      package_name: pkg.name,
+      installed_version: pkg.installed_version,
+      latest_candidate: pkg.latest_candidate,
+      was_held: pkg.held === "yes"
+    });
+  }
+
+  async function confirmPackageUpdate() {
+    if (!packageUpdateConfirm) return;
+
+    const res = await fetch(`${API}/api/package-updates/upgrade`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        asset_id: packageUpdateConfirm.asset_id,
+        package_name: packageUpdateConfirm.package_name,
+        was_held: packageUpdateConfirm.was_held
+      })
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      alert(data.detail || "Package update failed");
+      return;
+    }
+
+    alert(`Package update completed or triggered for ${packageUpdateConfirm.package_name}.`);
+    setPackageUpdateConfirm(null);
     await refresh();
   }
 
@@ -1479,6 +1518,7 @@ async function deployAgent() {
                 { key: "package_count", label: "Packages" },
                 { key: "packages_with_updates", label: "Updates Available" },
                 { key: "packages_unknown_latest", label: "Unknown Latest" },
+                { key: "held_packages", label: "Held Packages" },
                 {
                   key: "details",
                   label: "Details",
@@ -1708,6 +1748,52 @@ async function deployAgent() {
         </div>
       )}
 
+
+      {packageUpdateConfirm && (
+        <div style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: "rgba(0,0,0,0.5)",
+          zIndex: 1100
+        }}>
+          <div style={{
+            background: "#fff",
+            margin: "10% auto",
+            padding: "20px",
+            width: "600px",
+            maxWidth: "90%",
+            borderRadius: "8px"
+          }}>
+            <h2>Confirm Package Update</h2>
+
+            <table border="1" width="100%" style={{ borderCollapse: "collapse" }}>
+              <tbody>
+                <tr><th style={{ padding: "8px" }}>Asset</th><td style={{ padding: "8px" }}>{packageUpdateConfirm.asset_id}</td></tr>
+                <tr><th style={{ padding: "8px" }}>Package</th><td style={{ padding: "8px" }}>{packageUpdateConfirm.package_name}</td></tr>
+                <tr><th style={{ padding: "8px" }}>Installed</th><td style={{ padding: "8px" }}>{packageUpdateConfirm.installed_version}</td></tr>
+                <tr><th style={{ padding: "8px" }}>Target</th><td style={{ padding: "8px" }}>{packageUpdateConfirm.latest_candidate}</td></tr>
+                <tr><th style={{ padding: "8px" }}>Held</th><td style={{ padding: "8px" }}>{packageUpdateConfirm.was_held ? "yes" : "no"}</td></tr>
+              </tbody>
+            </table>
+
+            {packageUpdateConfirm.was_held && (
+              <p>
+                This package is currently held. The update will temporarily unhold it, perform the upgrade, and reapply the hold.
+              </p>
+            )}
+
+            <div className="modal-actions">
+              <button onClick={confirmPackageUpdate}>Confirm</button>
+              <button className="secondary" onClick={() => setPackageUpdateConfirm(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+
       {modalData && (
         <div style={{
           position: "fixed",
@@ -1738,6 +1824,45 @@ async function deployAgent() {
 
             {modalTitle.startsWith("Control Readiness:") && modalData.length === 1 ? (
               <ControlReadinessDetails record={modalData[0]} />
+            ) : modalTitle.startsWith("Asset Details:") ? (
+              <table border="1" width="100%" style={{ borderCollapse: "collapse" }}>
+                <thead>
+                  <tr>
+                    <th style={{ padding: "8px", background: "#f0f0f0" }}>Package</th>
+                    <th style={{ padding: "8px", background: "#f0f0f0" }}>Installed Version</th>
+                    <th style={{ padding: "8px", background: "#f0f0f0" }}>Latest Candidate</th>
+                    <th style={{ padding: "8px", background: "#f0f0f0" }}>Held</th>
+                    <th style={{ padding: "8px", background: "#f0f0f0" }}>Update Available</th>
+                    <th style={{ padding: "8px", background: "#f0f0f0" }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {modalData.map((pkg, idx) => (
+                    <tr key={idx}>
+                      <td style={{ padding: "8px" }}>{pkg.name}</td>
+                      <td style={{ padding: "8px" }}>{pkg.installed_version}</td>
+                      <td style={{ padding: "8px" }}>{pkg.latest_candidate}</td>
+                      <td style={{ padding: "8px" }}>{pkg.held || "no"}</td>
+                      <td style={{ padding: "8px" }}>{pkg.update_available}</td>
+                      <td style={{ padding: "8px" }}>
+                        <button
+                          disabled={pkg.update_available !== "yes"}
+                          style={{
+                            opacity: pkg.update_available === "yes" ? 1 : 0.4,
+                            cursor: pkg.update_available === "yes" ? "pointer" : "not-allowed"
+                          }}
+                          onClick={() => {
+                            const assetId = modalTitle.replace("Asset Details: ", "");
+                            requestPackageUpdate(assetId, pkg);
+                          }}
+                        >
+                          Update
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             ) : (
               <table border="1" width="100%" style={{ borderCollapse: "collapse" }}>
                 <thead>
