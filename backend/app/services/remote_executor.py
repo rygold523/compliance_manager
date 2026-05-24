@@ -9,6 +9,9 @@ BLOCKED_PATTERNS = [
 ]
 
 ALLOWED_PREFIXES = [
+    "HELD=$(apt-mark showhold | tr",
+    "HELD=$(apt-mark showhold);",
+    "sudo apt-get upgrade -y",
     "sudo apt-mark unhold",
     "sudo apt-get install --only-upgrade -y",
     "cat /etc/os-release",
