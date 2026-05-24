@@ -20,7 +20,7 @@ def write_changelog(event_type: str, asset_id: str, summary: str, details: dict 
         "details": details or {},
     }
 
-    with CHANGELOG_FILE.open("a") as f:
+    with CHANGELOG_FILE.open("a", encoding="utf-8") as f:
         f.write(json.dumps(event, default=str) + "\n")
 
     return event
@@ -31,12 +31,11 @@ def list_changelog(limit: int = 250):
     if not CHANGELOG_FILE.exists():
         return {"events": []}
 
-    rows = CHANGELOG_FILE.read_text().splitlines()
     events = []
 
-    for row in rows[-limit:]:
+    for line in CHANGELOG_FILE.read_text(encoding="utf-8").splitlines()[-limit:]:
         try:
-            events.append(json.loads(row))
+            events.append(json.loads(line))
         except Exception:
             continue
 
