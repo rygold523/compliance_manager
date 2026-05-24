@@ -6,6 +6,7 @@ import re
 from app.core.database import get_db
 from app.models import Asset
 from app.services.remote_executor import run_ssh_command
+from app.api.changelog import write_changelog
 
 router = APIRouter(prefix="/api/package-updates", tags=["package_updates"])
 
@@ -55,6 +56,18 @@ def upgrade_package(payload: PackageUpdateRequest, db: Session = Depends(get_db)
         command=command,
         port=port,
         timeout=300,
+    )
+
+    write_changelog(
+        event_type="package_update",
+        asset_id=asset.asset_id,
+        summary=f"Package update executed for {package}",
+        details={
+            "package_name": package,
+            "was_held": payload.was_held,
+            "command": command,
+            "result": result,
+        },
     )
 
     return {

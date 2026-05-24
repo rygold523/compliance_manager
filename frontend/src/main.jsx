@@ -530,6 +530,7 @@ function App() {
   const [activePage, setActivePage] = useState("dashboard");
   const cacheHydratedRef = useRef(false);
   const [assetDetails, setAssetDetails] = useState({ assets: [] });
+  const [changelogEvents, setChangelogEvents] = useState([]);
   const [agentMode, setAgentMode] = useState("deploy");
   const [agentForm, setAgentForm] = useState(emptyAgentForm);
 
@@ -617,6 +618,12 @@ function App() {
     });
 
     try {
+      const changelogResponse = await fetch(`${API}/api/changelog/`);
+      if (changelogResponse.ok) {
+        const changelogData = await changelogResponse.json();
+        setChangelogEvents(changelogData.events || []);
+      }
+
       const assetDetailsResponse = await fetch(`${API}/api/asset-details/`);
       if (assetDetailsResponse.ok) {
         setAssetDetails(await assetDetailsResponse.json());
@@ -795,6 +802,16 @@ async function deployAgent() {
     }
 
     alert(`Package update completed or triggered for ${packageUpdateConfirm.package_name}.`);
+
+    await fetch(`${API}/api/collectors/run`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        asset_id: packageUpdateConfirm.asset_id,
+        collectors: ["packages", "apt_policy", "held_packages"]
+      })
+    });
+
     setPackageUpdateConfirm(null);
     await refresh();
   }
@@ -1165,6 +1182,7 @@ async function deployAgent() {
           <button className={activePage === "dashboard" ? "active" : ""} onClick={() => setActivePage("dashboard")}>Dashboard</button>
           <button className={activePage === "assets" ? "active" : ""} onClick={() => setActivePage("assets")}>Asset Details</button>
           <button className={activePage === "collectors" ? "active" : ""} onClick={() => setActivePage("collectors")}>Collectors</button>
+          <button className={activePage === "changelog" ? "active" : ""} onClick={() => setActivePage("changelog")}>Changelog</button>
         </div>
 
         {activePage === "dashboard" && (

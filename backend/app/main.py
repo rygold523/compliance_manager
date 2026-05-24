@@ -32,6 +32,8 @@ from app.api.control_readiness_v2 import router as control_readiness_v2_router
 from app.api.collector_coverage import router as collector_coverage_router
 from app.api.windows_agent import router as windows_agent_router
 from app.api.asset_details import router as asset_details_router
+from app.api.package_updates import router as package_updates_router
+from app.api.changelog import router as changelog_router
 from app.core.database import Base, engine
 
 Base.metadata.create_all(bind=engine)
@@ -87,3 +89,5 @@ app.include_router(control_readiness_v2_router)
 app.include_router(collector_coverage_router)
 app.include_router(windows_agent_router)
 app.include_router(asset_details_router)
+app.include_router(package_updates_router)
+app.include_router(changelog_router)
