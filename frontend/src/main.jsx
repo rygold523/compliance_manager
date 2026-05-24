@@ -634,6 +634,23 @@ function App() {
     setCollectorCoverage(cc || { summary: {}, collectors: [] });
   }
 
+
+  async function loadChangelog() {
+    try {
+      const response = await fetch(`${API}/api/changelog/`);
+      if (!response.ok) {
+        setChangelogEvents([]);
+        return;
+      }
+
+      const data = await response.json();
+      setChangelogEvents(Array.isArray(data.events) ? data.events : []);
+    } catch (error) {
+      console.error("Failed to load changelog", error);
+      setChangelogEvents([]);
+    }
+  }
+
   async function runCollectors(asset_id) {
     const res = await fetch(`${API}/api/collectors/run`, {
       method: "POST",
@@ -1109,6 +1126,7 @@ async function deployAgent() {
   }
 
   useEffect(() => { refresh(); }, [selectedEnvironment]);
+  useEffect(() => { if (activePage === "changelog") loadChangelog(); }, [activePage]);
 
   return (
     <main>
@@ -1182,7 +1200,7 @@ async function deployAgent() {
           <button className={activePage === "dashboard" ? "active" : ""} onClick={() => setActivePage("dashboard")}>Dashboard</button>
           <button className={activePage === "assets" ? "active" : ""} onClick={() => setActivePage("assets")}>Asset Details</button>
           <button className={activePage === "collectors" ? "active" : ""} onClick={() => setActivePage("collectors")}>Collectors</button>
-          <button className={activePage === "changelog" ? "active" : ""} onClick={() => setActivePage("changelog")}>Changelog</button>
+          <button className={activePage === "changelog" ? "active" : ""} onClick={() => { setActivePage("changelog"); loadChangelog(); }}>Changelog</button>
         </div>
 
         {activePage === "dashboard" && (
@@ -1554,6 +1572,38 @@ async function deployAgent() {
               ]}
               rows={assetDetails.assets || []}
             />
+          </Section>
+        )}
+
+
+        {activePage === "changelog" && (
+          <Section title={`Changelog (${changelogEvents.length})`}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Timestamp</th>
+                  <th>Event Type</th>
+                  <th>Asset</th>
+                  <th>Summary</th>
+                </tr>
+              </thead>
+              <tbody>
+                {changelogEvents.length === 0 ? (
+                  <tr>
+                    <td colSpan="4">No changelog events recorded.</td>
+                  </tr>
+                ) : (
+                  changelogEvents.map((event, idx) => (
+                    <tr key={idx}>
+                      <td>{event.timestamp || "-"}</td>
+                      <td>{event.event_type || "-"}</td>
+                      <td>{event.asset_id || "-"}</td>
+                      <td>{event.summary || "-"}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </Section>
         )}
 
