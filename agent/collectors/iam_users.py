@@ -4,10 +4,20 @@ import os
 import pwd
 import grp
 import socket
-import subprocess
 from datetime import datetime, timezone
 
 NORMAL_UID_MIN = 1000
+
+SYSTEM_HOMES = {
+    "/",
+    "/bin",
+    "/sbin",
+    "/usr/bin",
+    "/usr/sbin",
+    "/nonexistent",
+    "/run",
+    "/var/empty",
+}
 
 def read_file(path):
     try:
@@ -34,6 +44,10 @@ def user_groups(username):
 def has_authorized_keys(home):
     count = 0
     present = False
+
+    if not home or not os.path.isdir(home):
+        return False, 0
+
     for name in ["authorized_keys", "authorized_keys2"]:
         path = os.path.join(home, ".ssh", name)
         if os.path.isfile(path):
@@ -46,25 +60,30 @@ def has_authorized_keys(home):
                     ])
             except Exception:
                 pass
+
     return present, count
 
 def sudoers_text():
     text = read_file("/etc/sudoers")
     sudoers_d = "/etc/sudoers.d"
+
     if os.path.isdir(sudoers_d):
         for name in sorted(os.listdir(sudoers_d)):
             path = os.path.join(sudoers_d, name)
             if os.path.isfile(path):
                 text += "\n" + read_file(path)
+
     return text
 
 def sshd_text():
     text = read_file("/etc/ssh/sshd_config")
     sshd_d = "/etc/ssh/sshd_config.d"
+
     if os.path.isdir(sshd_d):
         for name in sorted(os.listdir(sshd_d)):
             if name.endswith(".conf"):
                 text += "\n" + read_file(os.path.join(sshd_d, name))
+
     return text
 
 def sudo_direct_user(username, text):
@@ -78,20 +97,22 @@ def sudo_direct_user(username, text):
 
 def sudo_direct_group(groups, text):
     group_tokens = {"%" + g for g in groups}
+
     for line in text.splitlines():
         s = line.strip()
         if not s or s.startswith("#"):
             continue
-        first = s.split()[0] if s.split() else ""
-        if first in group_tokens:
+
+        parts = s.split()
+        if parts and parts[0] in group_tokens:
             return True
+
     return False
 
 def detect_sftp_only(username, groups, shell, sshd):
     lower = sshd.lower()
-    shell_lower = (shell or "").lower()
 
-    if "forcecommand internal-sftp" not in lower and "forcecommand internal-sftp" not in lower.replace(" ", ""):
+    if "forcecommand internal-sftp" not in lower and "forcecommandinternal-sftp" not in lower.replace(" ", ""):
         return False
 
     lines = sshd.splitlines()
@@ -117,25 +138,58 @@ def detect_sftp_only(username, groups, shell, sshd):
             if len(parts) >= 3:
                 criteria = parts[1].lower()
                 values = " ".join(parts[2:]).replace(",", " ").split()
+
                 if criteria == "user" and username in values:
                     applies = True
+
                 if criteria == "group" and any(g in values for g in groups):
                     applies = True
+
             continue
 
         if in_match:
             block.append(line)
 
+    shell_lower = (shell or "").lower()
     if shell_lower.endswith("/nologin") or shell_lower.endswith("/false"):
-        if username in lower or any(g.lower() in lower for g in groups):
+        if username.lower() in lower or any(g.lower() in lower for g in groups):
             return True
 
     return False
 
+def has_real_home(home):
+    if not home:
+        return False
+
+    if home in SYSTEM_HOMES:
+        return False
+
+    if home.startswith("/home/"):
+        return True
+
+    if home == "/root":
+        return True
+
+    return False
+
+def account_type(username, uid, home, shell, ssh_user, sftp_only, sudo_access, docker_access):
+    if username == "root":
+        return "user"
+
+    if has_real_home(home) and uid >= NORMAL_UID_MIN:
+        return "user"
+
+    if has_real_home(home) and (ssh_user or sftp_only or sudo_access or docker_access):
+        return "user"
+
+    return "service"
+
 def main():
     sudo_text = sudoers_text()
     sshd = sshd_text()
+
     users = []
+    service_accounts = []
 
     for p in pwd.getpwall():
         username = p.pw_name
@@ -161,10 +215,20 @@ def main():
         docker_access = "docker" in groups
         sftp_only = detect_sftp_only(username, groups, shell, sshd)
 
-        ssh_user = bool(shell_allows_login and not sftp_only and (p.pw_uid >= NORMAL_UID_MIN or auth_present or sudo_access))
-        system_user = p.pw_uid < NORMAL_UID_MIN and not ssh_user and not sftp_only and username != "root"
+        ssh_user = bool(
+            shell_allows_login
+            and not sftp_only
+            and (
+                p.pw_uid >= NORMAL_UID_MIN
+                or username == "root"
+                or auth_present
+                or sudo_access
+                or docker_access
+            )
+        )
 
         access = []
+
         if ssh_user:
             access.append("SSH")
         if sftp_only:
@@ -176,7 +240,18 @@ def main():
         if not access:
             access.append("None")
 
-        users.append({
+        acct_type = account_type(
+            username=username,
+            uid=p.pw_uid,
+            home=p.pw_dir,
+            shell=shell,
+            ssh_user=ssh_user,
+            sftp_only=sftp_only,
+            sudo_access=sudo_access,
+            docker_access=docker_access,
+        )
+
+        row = {
             "username": username,
             "uid": p.pw_uid,
             "gid": p.pw_gid,
@@ -190,16 +265,22 @@ def main():
             "sftp_only": sftp_only,
             "sudo_access": sudo_access,
             "docker_access": docker_access,
-            "system_user": system_user,
-            "access": access
-        })
+            "account_type": acct_type,
+            "access": access,
+        }
+
+        if acct_type == "user":
+            users.append(row)
+        else:
+            service_accounts.append(row)
 
     print(json.dumps({
         "collector": "iam_users",
         "asset_id": os.environ.get("ASSET_ID", socket.gethostname()),
         "hostname": socket.gethostname(),
         "collected_at": datetime.now(timezone.utc).isoformat(),
-        "users": users
+        "users": users,
+        "service_accounts": service_accounts,
     }, indent=2))
 
 if __name__ == "__main__":

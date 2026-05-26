@@ -1,41 +1,90 @@
 import React, { useEffect, useState } from "react";
 
-function MatrixTable({ title, data }) {
+const API = import.meta.env.VITE_API_URL || `${window.location.protocol}//${window.location.hostname}:8000`;
+
+function MatrixTable({ title, data, emptyText }) {
   const servers = data?.servers || [];
   const rows = data?.rows || [];
 
   return (
-    <div className="bg-white rounded shadow p-4 mb-6 overflow-auto">
-      <h2 className="text-xl font-semibold mb-3">{title}</h2>
-      <table className="min-w-full border border-gray-300 text-sm">
-        <thead>
-          <tr className="bg-gray-100">
-            <th className="border px-3 py-2 text-left sticky left-0 bg-gray-100">UserName</th>
-            {servers.map((server) => (
-              <th key={server} className="border px-3 py-2 text-left whitespace-nowrap">{server}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.username}>
-              <td className="border px-3 py-2 font-medium sticky left-0 bg-white">{row.username}</td>
-              {servers.map((server) => (
-                <td key={server} className="border px-3 py-2 whitespace-pre-wrap">
-                  {row[server] || ""}
-                </td>
+    <div style={{ marginBottom: "30px" }}>
+      <h2>{title}</h2>
+
+      <div style={{ overflowX: "auto" }}>
+        <table className="table">
+          <thead>
+            <tr>
+              <th>UserName</th>
+              {servers.map(server => (
+                <th key={server}>{server}</th>
               ))}
             </tr>
-          ))}
-          {rows.length === 0 && (
+          </thead>
+
+          <tbody>
+            {rows.length === 0 ? (
+              <tr>
+                <td colSpan={servers.length + 1}>{emptyText}</td>
+              </tr>
+            ) : (
+              rows.map(row => (
+                <tr key={row.username}>
+                  <td>{row.username}</td>
+                  {servers.map(server => (
+                    <td key={server}>{row[server] || ""}</td>
+                  ))}
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function DetailTable({ title, rows, service }) {
+  return (
+    <div style={{ marginBottom: "30px" }}>
+      <h2>{title}</h2>
+
+      <div style={{ overflowX: "auto" }}>
+        <table className="table">
+          <thead>
             <tr>
-              <td className="border px-3 py-2" colSpan={servers.length + 1}>
-                No IAM evidence found. Run the iam_users collector first.
-              </td>
+              <th>Server</th>
+              <th>User</th>
+              <th>UID</th>
+              <th>Home</th>
+              <th>Shell</th>
+              <th>Access</th>
+              <th>Groups</th>
             </tr>
-          )}
-        </tbody>
-      </table>
+          </thead>
+
+          <tbody>
+            {rows.length === 0 ? (
+              <tr>
+                <td colSpan="7">
+                  {service ? "No service accounts loaded." : "No user accounts loaded."}
+                </td>
+              </tr>
+            ) : (
+              rows.map((u, idx) => (
+                <tr key={`${u.asset_id}-${u.username}-${idx}`}>
+                  <td>{u.asset_id}</td>
+                  <td>{u.username}</td>
+                  <td>{u.uid}</td>
+                  <td>{u.home}</td>
+                  <td>{u.shell}</td>
+                  <td>{(u.access || []).join(", ")}</td>
+                  <td>{(u.groups || []).join(", ")}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -43,47 +92,88 @@ function MatrixTable({ title, data }) {
 export default function IAM() {
   const [accessMatrix, setAccessMatrix] = useState({ servers: [], rows: [] });
   const [groupMatrix, setGroupMatrix] = useState({ servers: [], rows: [] });
+  const [serviceMatrix, setServiceMatrix] = useState({ servers: [], rows: [] });
   const [users, setUsers] = useState([]);
+  const [serviceAccounts, setServiceAccounts] = useState([]);
+  const [error, setError] = useState("");
+
+  async function getJson(path) {
+    const res = await fetch(`${API}${path}?t=${Date.now()}`);
+    if (!res.ok) {
+      throw new Error(`${path} returned HTTP ${res.status}`);
+    }
+    return await res.json();
+  }
+
+  async function loadData() {
+    try {
+      setError("");
+
+      const accessData = await getJson("/api/iam/access-matrix");
+      const groupData = await getJson("/api/iam/group-matrix");
+      const serviceData = await getJson("/api/iam/service-account-matrix");
+      const usersData = await getJson("/api/iam/users");
+      const serviceUsersData = await getJson("/api/iam/service-accounts");
+
+      setAccessMatrix(accessData || { servers: [], rows: [] });
+      setGroupMatrix(groupData || { servers: [], rows: [] });
+      setServiceMatrix(serviceData || { servers: [], rows: [] });
+      setUsers(usersData.users || []);
+      setServiceAccounts(serviceUsersData.service_accounts || []);
+    } catch (err) {
+      console.error(err);
+      setError(String(err));
+    }
+  }
 
   useEffect(() => {
-    fetch("/api/iam/access-matrix").then(r => r.json()).then(setAccessMatrix).catch(() => {});
-    fetch("/api/iam/group-matrix").then(r => r.json()).then(setGroupMatrix).catch(() => {});
-    fetch("/api/iam/users").then(r => r.json()).then(d => setUsers(d.users || [])).catch(() => {});
+    loadData();
   }, []);
 
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold mb-4">IAM</h1>
-      <MatrixTable title="User Access Matrix" data={accessMatrix} />
-      <MatrixTable title="User Group Assignment Matrix" data={groupMatrix} />
+    <div>
+      <h1>IAM</h1>
 
-      <div className="bg-white rounded shadow p-4 overflow-auto">
-        <h2 className="text-xl font-semibold mb-3">IAM Evidence Details</h2>
-        <table className="min-w-full border border-gray-300 text-sm">
-          <thead>
-            <tr className="bg-gray-100">
-              <th className="border px-3 py-2 text-left">Server</th>
-              <th className="border px-3 py-2 text-left">User</th>
-              <th className="border px-3 py-2 text-left">UID</th>
-              <th className="border px-3 py-2 text-left">Shell</th>
-              <th className="border px-3 py-2 text-left">Access</th>
-              <th className="border px-3 py-2 text-left">Groups</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((u, idx) => (
-              <tr key={`${u.asset_id}-${u.username}-${idx}`}>
-                <td className="border px-3 py-2">{u.asset_id}</td>
-                <td className="border px-3 py-2">{u.username}</td>
-                <td className="border px-3 py-2">{u.uid}</td>
-                <td className="border px-3 py-2">{u.shell}</td>
-                <td className="border px-3 py-2">{(u.access || []).join(", ")}</td>
-                <td className="border px-3 py-2">{(u.groups || []).join(", ")}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {error && (
+        <div style={{
+          background: "#ffdddd",
+          padding: "10px",
+          marginBottom: "20px",
+          border: "1px solid #cc0000"
+        }}>
+          {error}
+        </div>
+      )}
+
+      <MatrixTable
+        title="User Access Matrix"
+        data={accessMatrix}
+        emptyText="No agent-collected IAM user evidence found."
+      />
+
+      <MatrixTable
+        title="User Group Assignment Matrix"
+        data={groupMatrix}
+        emptyText="No agent-collected IAM user group evidence found."
+      />
+
+      <DetailTable
+        title="IAM User Evidence Details"
+        rows={users}
+        service={false}
+      />
+
+      <MatrixTable
+        title="Service Account Group Matrix"
+        data={serviceMatrix}
+        emptyText="No service account evidence found."
+      />
+
+      <DetailTable
+        title="Service Account Evidence Details"
+        rows={serviceAccounts}
+        service={true}
+      />
     </div>
   );
 }
