@@ -11,7 +11,7 @@ SCRIPT_PATH = Path("/var/lib/ai-vulnerability-management/windows_collectors/wind
 def list_windows_collectors():
     return {
         "collectors": [
-            {"name": "windows_local_users", "control_ids": ["AC-02"]},
+            {"name": "windows_local_users", "control_ids": ["AC-02", "iam_users"]},
             {"name": "windows_local_groups", "control_ids": ["AC-02"]},
             {"name": "windows_defender_status", "control_ids": ["SI-01", "VM-01"]},
             {"name": "windows_firewall_status", "control_ids": ["NS-01"]},

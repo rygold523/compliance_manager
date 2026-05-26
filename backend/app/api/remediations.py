@@ -1,6 +1,11 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
 from collections import defaultdict
 import re
+
+from app.core.database import get_db
+from app.models.models import Asset
+from app.services.role_applicability import finding_applies_to_asset
 
 router = APIRouter(prefix="/api/remediations", tags=["remediations"])
 
@@ -157,7 +162,7 @@ def evidence_is_valid(ev):
 
 
 @router.get("/")
-def list_remediations():
+def list_remediations(db: Session = Depends(get_db)):
     findings = get_db_rows("Finding")
     evidence = get_db_rows("Evidence")
 
@@ -197,11 +202,14 @@ def list_remediations():
 
         if dedupe_key not in seen:
             seen.add(dedupe_key)
-            asset = db.query(Asset).filter(Asset.asset_id == remediation.get("asset_id")).first()
-        if asset and not finding_applies_to_asset(remediation, asset):
-            continue
+            asset = db.query(Asset).filter(
+                Asset.asset_id == remediation.get("asset_id")
+            ).first()
 
-        remediations.append(remediation)
+            if asset and not finding_applies_to_asset(remediation, asset):
+                continue
+
+            remediations.append(remediation)
 
     for ev in latest_evidence.values():
         if evidence_is_valid(ev):
@@ -232,11 +240,14 @@ def list_remediations():
 
         if dedupe_key not in seen:
             seen.add(dedupe_key)
-            asset = db.query(Asset).filter(Asset.asset_id == remediation.get("asset_id")).first()
-        if asset and not finding_applies_to_asset(remediation, asset):
-            continue
+            asset = db.query(Asset).filter(
+                Asset.asset_id == remediation.get("asset_id")
+            ).first()
 
-        remediations.append(remediation)
+            if asset and not finding_applies_to_asset(remediation, asset):
+                continue
+
+            remediations.append(remediation)
 
     grouped = defaultdict(list)
     for item in remediations:

@@ -6,7 +6,7 @@ def _now():
 
 
 def linux_security_presence_commands():
-    return {
+    linux = {
         "trend_micro_ds_agent": {
             "control_ids": ["SI-03", "VM-02"],
             "command": "if systemctl list-unit-files | grep -q '^ds_agent.service'; then systemctl is-active ds_agent || true; elif command -v /opt/ds_agent/dsa_control >/dev/null 2>&1; then echo present; else echo missing; fi",
@@ -15,7 +15,7 @@ def linux_security_presence_commands():
             "control_ids": ["VM-02", "CM-05"],
             "command": "if systemctl list-unit-files | grep -q '^amagent.service'; then systemctl is-active amagent || true; elif command -v amagent >/dev/null 2>&1; then echo present; else echo missing; fi",
         },
-        "duo_mfa": {
+        "duo_mfa_linux": {
             "control_ids": ["AC-01", "AC-04"],
             "command": "printf 'pam_duo_conf='; test -f /etc/duo/pam_duo.conf && echo present || echo missing; printf 'pam_sshd_duo='; grep -R 'pam_duo.so' /etc/pam.d/sshd /etc/pam.d/common-auth 2>/dev/null | head -5 || true",
         },
@@ -23,7 +23,7 @@ def linux_security_presence_commands():
             "control_ids": ["SI-01", "SI-03"],
             "command": "if systemctl list-unit-files | grep -q '^wazuh-agent.service'; then systemctl is-active wazuh-agent || true; elif test -d /var/ossec; then echo present; else echo missing; fi",
         },
-        "listening_ports": {
+        "listening_services": {
             "control_ids": ["NS-01", "NS-02"],
             "command": "ss -tulpen 2>/dev/null || netstat -tulpen 2>/dev/null || true",
         },
@@ -52,7 +52,7 @@ def windows_security_presence_powershell():
             "control_ids": ["VM-02", "CM-05"],
             "command": "Get-Service -Name amagent -ErrorAction SilentlyContinue | Select-Object Name,Status,StartType | ConvertTo-Json -Compress",
         },
-        "duo_mfa": {
+        "duo_mfa_linux": {
             "control_ids": ["AC-01", "AC-04"],
             "command": "$svc=Get-Service -Name DuoCredProv -ErrorAction SilentlyContinue; $paths=@('C:\\Program Files\\Duo Security','C:\\Program Files (x86)\\Duo Security'); [PSCustomObject]@{DuoCredProv=$svc; Paths=($paths | Where-Object { Test-Path $_ })} | ConvertTo-Json -Compress -Depth 4",
         },
@@ -60,7 +60,7 @@ def windows_security_presence_powershell():
             "control_ids": ["SI-01", "SI-03"],
             "command": "Get-Service -Name wazuh -ErrorAction SilentlyContinue | Select-Object Name,Status,StartType | ConvertTo-Json -Compress",
         },
-        "listening_ports": {
+        "listening_services": {
             "control_ids": ["NS-01", "NS-02"],
             "command": "Get-NetTCPConnection -State Listen | Select-Object LocalAddress,LocalPort,OwningProcess | ConvertTo-Json -Compress",
         },

@@ -79,7 +79,14 @@ def mappings_for(control_ids):
 
 @router.get("/")
 def list_documents():
-    return load_db()
+    records = load_db()
+
+    for record in records:
+        record["mapped_frameworks"] = framework_mappings_for_controls(
+            record.get("mapped_controls") or []
+        )
+
+    return records
 
 
 @router.post("/suggest-mappings")

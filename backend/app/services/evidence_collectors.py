@@ -32,6 +32,18 @@ COLLECTORS = {
         "control_ids": ["NS-01", "CM-01"],
         "frameworks": {"pci_dss": ["1.2", "2.2"], "soc2": ["CC6.6", "CC8.1"], "nist_800_53": ["SC-7", "CM-6"], "iso_27001": ["A.8.20", "A.8.9"], "iso_27002": ["8.20", "8.9"]},
     },
+    "resource_usage": {
+        "command": 'printf \'CPU_CORES=\'; nproc; printf \'\\nMEMORY=\'; free -m | awk \'/Mem:/ {print $2}\'; printf \'\\nDISK_ALLOCATED_BYTES=\'; lsblk -b -d -n -o SIZE,TYPE | awk \'$2=="disk" {sum += $1} END {print sum+0}\'',
+        "control_ids": ["AM-01", "SI-01"],
+        "frameworks": {
+            "pci_dss": ["12.5"],
+            "soc2": ["CC7.2"],
+            "nist_800_53": ["CM-8", "SI-4"],
+            "iso_27001": ["A.5.9", "A.8.16"],
+            "iso_27002": ["5.9", "8.16"]
+        }
+    },
+
     "os_inventory": {
         "command": "cat /etc/os-release 2>/dev/null; printf 'KERNEL_VERSION='; uname -r",
         "control_ids": ["AM-01", "CM-01"],

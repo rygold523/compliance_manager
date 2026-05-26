@@ -212,6 +212,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
 import ContinuousComplianceState from "./pages/continuous-compliance/ContinuousComplianceState.jsx";
+import IAM from "./pages/IAM";
 
 
 function normalizeComplianceScores(scorePayload) {
@@ -491,6 +492,7 @@ function App() {
   const [modalData, setModalData] = useState(null);
   const [modalTitle, setModalTitle] = useState("");
   const [packageUpdateConfirm, setPackageUpdateConfirm] = useState(null);
+  const [bulkPackageUpdateConfirm, setBulkPackageUpdateConfirm] = useState(null);
   const [scores, setScores] = useState({});
   const [environments, setEnvironments] = useState(["all"]);
   const [selectedEnvironment, setSelectedEnvironment] = useState("all");
@@ -830,6 +832,53 @@ async function deployAgent() {
     });
 
     setPackageUpdateConfirm(null);
+    await refresh();
+  }
+
+
+  function requestBulkPackageUpdate(assetId, includeHeld) {
+    setBulkPackageUpdateConfirm({
+      asset_id: assetId,
+      include_held: includeHeld
+    });
+  }
+
+  async function confirmBulkPackageUpdate() {
+    if (!bulkPackageUpdateConfirm) return;
+
+    const res = await fetch(`${API}/api/package-updates/upgrade-all`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        asset_id: bulkPackageUpdateConfirm.asset_id,
+        include_held: bulkPackageUpdateConfirm.include_held
+      })
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      alert(data.detail || "Bulk package update failed");
+      return;
+    }
+
+    alert(
+      bulkPackageUpdateConfirm.include_held
+        ? "Bulk package update completed or triggered, including held packages."
+        : "Bulk package update completed or triggered, excluding held packages."
+    );
+
+    await fetch(`${API}/api/collectors/run`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        asset_id: bulkPackageUpdateConfirm.asset_id,
+        collectors: ["packages", "apt_policy", "held_packages"]
+      })
+    });
+
+    setBulkPackageUpdateConfirm(null);
+    await loadChangelog();
     await refresh();
   }
 
@@ -1198,12 +1247,25 @@ async function deployAgent() {
 
         <div className="page-tabs">
           <button className={activePage === "dashboard" ? "active" : ""} onClick={() => setActivePage("dashboard")}>Dashboard</button>
+
+<button
+  className={activePage === "iam" ? "active" : ""}
+  onClick={() => setActivePage("iam")}
+>
+  IAM
+</button>
+
           <button className={activePage === "assets" ? "active" : ""} onClick={() => setActivePage("assets")}>Asset Details</button>
           <button className={activePage === "collectors" ? "active" : ""} onClick={() => setActivePage("collectors")}>Collectors</button>
           <button className={activePage === "changelog" ? "active" : ""} onClick={() => { setActivePage("changelog"); loadChangelog(); }}>Changelog</button>
         </div>
 
-        {activePage === "dashboard" && (
+        
+{activePage === "iam" && (
+  <IAM />
+)}
+
+{activePage === "dashboard" && (
         <>
         <Section title={`Assets (${assets.length})`}>
           <div className="section-actions">
@@ -1541,40 +1603,93 @@ async function deployAgent() {
         )}
 
         {activePage === "assets" && (
-          <Section title={`Asset Details (${assetDetails.assets?.length || 0})`}>
-            <DataTable
-              columns={[
-                { key: "asset_id", label: "Asset ID" },
-                { key: "hostname", label: "Hostname" },
-                { key: "environment", label: "Environment" },
-                { key: "os_family", label: "OS Family" },
-                { key: "os_name", label: "OS" },
-                { key: "os_version", label: "OS Version" },
-                { key: "kernel_version", label: "Kernel" },
-                { key: "package_count", label: "Packages" },
-                { key: "packages_with_updates", label: "Updates Available" },
-                { key: "packages_unknown_latest", label: "Unknown Latest" },
-                { key: "held_packages", label: "Held Packages" },
-                {
-                  key: "details",
-                  label: "Details",
-                  render: (r) => (
-                    <button
-                      onClick={() => {
-                        setModalTitle(`Asset Details: ${r.asset_id}`);
-                        setModalData(r.packages || []);
-                      }}
-                    >
-                      Packages
-                    </button>
-                  )
-                }
-              ]}
-              rows={assetDetails.assets || []}
-            />
-          </Section>
-        )}
+          <>
+            <Section title="System Resources">
+              <DataTable
+                columns={[
+                  { key: "asset_id", label: "Asset ID" },
+                  { key: "hostname", label: "Hostname" },
+                  { key: "environment", label: "Environment" },
+                  { key: "cpu_cores", label: "CPU Cores Allocated", render: r => r.resources?.cpu_cores || "Unknown" },
+                  {
+                    key: "memory_total_mb",
+                    label: "Memory Allocated GB",
+                    render: r => {
+                      const val = r.resources?.memory_total_mb;
 
+                      if (!val || val === "Unknown") {
+                        return "Unknown";
+                      }
+
+                      const gb = (parseFloat(val) / 1024).toFixed(2);
+
+                      return `${gb} GB`;
+                    }
+                  },
+                  { key: "disk_total", label: "Root Disk Allocated", render: r => r.resources?.disk_total || "Unknown" }
+                ]}
+                rows={assetDetails.assets || []}
+              />
+            </Section>
+
+            <Section title={`Asset Details (${assetDetails.assets?.length || 0})`}>
+              <DataTable
+                columns={[
+                  { key: "asset_id", label: "Asset ID" },
+                  { key: "hostname", label: "Hostname" },
+                  { key: "environment", label: "Environment" },
+                  { key: "os_family", label: "OS Family" },
+                  { key: "os_name", label: "OS" },
+                  { key: "os_version", label: "OS Version" },
+                  { key: "kernel_version", label: "Kernel" },
+                  { key: "package_count", label: "Packages" },
+                  { key: "packages_with_updates", label: "Updates Available" },
+                  { key: "packages_unknown_latest", label: "Unknown Latest" },
+                  { key: "held_packages", label: "Held Packages" },
+                  {
+                    key: "details",
+                    label: "Actions",
+                    render: (r) => (
+                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                        <button
+                          onClick={() => {
+                            setModalTitle(`Asset Details: ${r.asset_id}`);
+                            setModalData(r.packages || []);
+                          }}
+                        >
+                          Packages
+                        </button>
+
+                        <button
+                          disabled={(r.packages_with_updates || 0) === 0}
+                          style={{
+                            opacity: (r.packages_with_updates || 0) > 0 ? 1 : 0.4,
+                            cursor: (r.packages_with_updates || 0) > 0 ? "pointer" : "not-allowed"
+                          }}
+                          onClick={() => requestBulkPackageUpdate(r.asset_id, false)}
+                        >
+                          Update All Except Held
+                        </button>
+
+                        <button
+                          disabled={(r.packages_with_updates || 0) === 0}
+                          style={{
+                            opacity: (r.packages_with_updates || 0) > 0 ? 1 : 0.4,
+                            cursor: (r.packages_with_updates || 0) > 0 ? "pointer" : "not-allowed"
+                          }}
+                          onClick={() => requestBulkPackageUpdate(r.asset_id, true)}
+                        >
+                          Update All Including Held
+                        </button>
+                      </div>
+                    )
+                  }
+                ]}
+                rows={assetDetails.assets || []}
+              />
+            </Section>
+          </>
+        )}
 
         {activePage === "changelog" && (
           <Section title={`Changelog (${changelogEvents.length})`}>
@@ -1811,6 +1926,67 @@ async function deployAgent() {
                 Save Confirmed Mappings
               </button>
               <button className="secondary" onClick={() => setMappingModal(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+
+
+      {bulkPackageUpdateConfirm && (
+        <div style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: "rgba(0,0,0,0.5)",
+          zIndex: 1100
+        }}>
+          <div style={{
+            background: "#fff",
+            margin: "10% auto",
+            padding: "20px",
+            width: "650px",
+            maxWidth: "90%",
+            borderRadius: "8px"
+          }}>
+            <h2>Confirm Bulk Package Update</h2>
+
+            <p>
+              Confirm bulk package update on asset <strong>{bulkPackageUpdateConfirm.asset_id}</strong>.
+            </p>
+
+            <table border="1" width="100%" style={{ borderCollapse: "collapse" }}>
+              <tbody>
+                <tr>
+                  <th style={{ padding: "8px" }}>Asset</th>
+                  <td style={{ padding: "8px" }}>{bulkPackageUpdateConfirm.asset_id}</td>
+                </tr>
+                <tr>
+                  <th style={{ padding: "8px" }}>Mode</th>
+                  <td style={{ padding: "8px" }}>
+                    {bulkPackageUpdateConfirm.include_held
+                      ? "Update all packages, including held packages"
+                      : "Update all packages except held packages"}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+            {bulkPackageUpdateConfirm.include_held ? (
+              <p>
+                Held packages will be temporarily unheld, upgraded, and then held again after the update completes.
+              </p>
+            ) : (
+              <p>
+                Held packages will remain held and will not be upgraded.
+              </p>
+            )}
+
+            <div className="modal-actions">
+              <button onClick={confirmBulkPackageUpdate}>Confirm</button>
+              <button className="secondary" onClick={() => setBulkPackageUpdateConfirm(null)}>Cancel</button>
             </div>
           </div>
         </div>

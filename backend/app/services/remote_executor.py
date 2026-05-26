@@ -9,6 +9,7 @@ BLOCKED_PATTERNS = [
 ]
 
 ALLOWED_PREFIXES = [
+    "printf 'CPU_CORES='; nproc;",
     "HELD=$(apt-mark showhold | tr",
     "HELD=$(apt-mark showhold);",
     "sudo apt-get upgrade -y",

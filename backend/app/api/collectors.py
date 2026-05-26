@@ -43,7 +43,7 @@ router = APIRouter()
 
 @router.get("/")
 def list_collectors():
-    return {"collectors": [{"name": name, "control_ids": spec["control_ids"], "frameworks": spec["frameworks"]} for name, spec in COLLECTORS.items()]}
+    return {"collectors": [{"name": name, "control_ids": spec["control_ids", "iam_users"], "frameworks": spec["frameworks"]} for name, spec in COLLECTORS.items()]}
 
 @router.post("/run")
 def run_collectors(payload: CollectorRunRequest, db: Session = Depends(get_db)):
@@ -135,7 +135,7 @@ def run_collectors(payload: CollectorRunRequest, db: Session = Depends(get_db)):
 
         evidence_id = f"EV-{uuid4().hex[:12].upper()}"
         evidence_dir = Path(settings.evidence_root) / asset.asset_id / collector_name
-        evidence_dir.mkdir(parents=True)
+        evidence_dir.mkdir(parents=True, exist_ok=True)
         evidence_path = evidence_dir / f"{evidence_id}.json"
         evidence_path.write_text(json.dumps(output, indent=2, default=str))
 

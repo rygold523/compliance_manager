@@ -29,6 +29,43 @@ def _read_output(ev):
         return ""
 
 
+
+
+
+def _parse_resource_usage(output):
+    result = {
+        "cpu_cores": "Unknown",
+        "memory_total_mb": "Unknown",
+        "disk_total": "Unknown",
+    }
+
+    def bytes_to_gb(value):
+        try:
+            gb = float(value) / 1024 / 1024 / 1024
+            return f"{gb:.0f}G"
+        except Exception:
+            return "Unknown"
+
+    for line in str(output or "").splitlines():
+        line = line.strip()
+
+        if line.startswith("CPU_CORES="):
+            result["cpu_cores"] = line.split("=", 1)[1].strip()
+
+        elif line.startswith("MEMORY="):
+            parts = line.split("=", 1)[1].split()
+
+            if len(parts) >= 1:
+                result["memory_total_mb"] = parts[0]
+
+        elif line.startswith("DISK_ALLOCATED_BYTES="):
+            result["disk_total"] = bytes_to_gb(
+                line.split("=", 1)[1].strip()
+            )
+
+    return result
+
+
 def _parse_os_release(output):
     result = {
         "os_name": "Unknown",
@@ -148,6 +185,7 @@ def list_asset_details(db: Session = Depends(get_db)):
         os_ev = _latest_evidence(db, asset.asset_id, "os_inventory")
         packages_ev = _latest_evidence(db, asset.asset_id, "packages")
         apt_policy_ev = _latest_evidence(db, asset.asset_id, "apt_policy")
+        resource_ev = _latest_evidence(db, asset.asset_id, "resource_usage")
         held_packages_ev = _latest_evidence(db, asset.asset_id, "held_packages")
 
         os_info = _parse_os_release(_read_output(os_ev))
@@ -155,6 +193,7 @@ def list_asset_details(db: Session = Depends(get_db)):
         apt_policy = _parse_apt_policy(_read_output(apt_policy_ev))
         held_packages = _parse_held_packages(_read_output(held_packages_ev))
         package_status = _merge_package_status(packages, apt_policy, held_packages)
+        resource_usage = _parse_resource_usage(_read_output(resource_ev))
 
         results.append({
             "asset_id": asset.asset_id,
@@ -170,6 +209,7 @@ def list_asset_details(db: Session = Depends(get_db)):
             "packages_with_updates": len([p for p in package_status if p["update_available"] == "yes"]),
             "packages_unknown_latest": len([p for p in package_status if p["update_available"] == "unknown"]),
             "held_packages": len([p for p in package_status if p["held"] == "yes"]),
+            "resources": resource_usage,
             "packages": package_status,
         })
 

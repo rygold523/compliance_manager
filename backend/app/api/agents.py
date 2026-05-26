@@ -73,6 +73,13 @@ def run_initial_collection(db: Session, asset: Asset):
     }
 
 
+
+def windows_bootstrap_script(asset_id: str, backend_url: str = "http://localhost:8000") -> str:
+    return f"""powershell -NoProfile -ExecutionPolicy Bypass -Command "New-Item -ItemType Directory -Force -Path C:\\ProgramData\\ComplianceAgent | Out-Null"
+# Copy scripts/bootstrap_windows_managed_target.ps1 to the Windows host, then run:
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\\ProgramData\\ComplianceAgent\\bootstrap_windows_managed_target.ps1 -BackendUrl '{backend_url}' -AssetId '{asset_id}'
+"""
+
 @router.post("/deploy")
 def deploy(payload: AgentDeployRequest, db: Session = Depends(get_db)):
     deployment_id = f"AGENT-{uuid4().hex[:12].upper()}"
@@ -160,6 +167,28 @@ def deploy(payload: AgentDeployRequest, db: Session = Depends(get_db)):
         "message": "Agent deployed. Initial evidence collection and finding analysis completed." if collection_result else "Agent deployment did not complete successfully. Initial collection was not run.",
         "output": result.get("output", []),
         "initial_collection": collection_result,
+    }
+
+
+
+@router.patch("/{asset_id}/classification")
+def update_asset_classification(asset_id: str, payload: dict, db: Session = Depends(get_db)):
+    asset = db.query(Asset).filter(Asset.asset_id == asset_id).first()
+
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    asset.asset_roles = normalize_asset_roles(payload.get("asset_roles", []))
+    asset.data_classification = payload.get("data_classification", [])
+
+    db.commit()
+    db.refresh(asset)
+
+    return {
+        "status": "updated",
+        "asset_id": asset.asset_id,
+        "asset_roles": asset.asset_roles or [],
+        "data_classification": asset.data_classification or [],
     }
 
 
