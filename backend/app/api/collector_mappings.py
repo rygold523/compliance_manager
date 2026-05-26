@@ -63,4 +63,7 @@ def list_collector_mappings():
 
     return {
         "collectors": rows,
-    }
+
+    "iam_users": ["AC-01", "AC-02"],
+
+}

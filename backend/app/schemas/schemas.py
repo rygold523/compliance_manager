@@ -78,8 +78,8 @@ class CollectorRunRequest(BaseModel):
         "user_changes", "auth_success", "auth_failure", "sudo_activity",
         "open_ports", "listening_services", "packages", "held_packages",
         "available_updates", "firewall_status", "ssh_config", "time_sync",
-        "disk_usage", "docker_inventory",
-    ]
+        "disk_usage", "docker_inventory",,
+        "iam_users"]
 
 
 class ScannerImportRequest(BaseModel):

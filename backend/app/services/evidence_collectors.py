@@ -2,6 +2,12 @@ from datetime import datetime, timezone
 from app.services.remote_executor import run_ssh_command
 
 COLLECTORS = {
+    "iam_users": {
+        "script": "iam_users.py",
+        "control_ids": ["AC-01", "AC-02"],
+        "frameworks": ["pci_dss", "soc2", "nist_800_53", "iso_27002"]
+    },
+
     "user_changes": {
         "command": "sudo grep -E 'useradd|userdel|usermod|groupadd|groupdel|passwd' /var/log/auth.log /var/log/auth.log.1 2>/dev/null | tail -200",
         "control_ids": ["AC-02", "SI-01"],
