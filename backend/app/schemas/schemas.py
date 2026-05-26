@@ -75,11 +75,12 @@ class RemoteCommandRequest(BaseModel):
 class CollectorRunRequest(BaseModel):
     asset_id: str
     collectors: list[str] = [
-        "user_changes", "auth_success", "auth_failure", "sudo_activity",
-        "open_ports", "listening_services", "packages", "held_packages",
-        "available_updates", "firewall_status", "ssh_config", "time_sync",
-        "disk_usage", "docker_inventory",,
-        "iam_users"]
+        "user_changes",
+        "open_ports",
+        "available_updates",
+        "disk_usage",
+        "iam_users",
+    ]
 
 
 class ScannerImportRequest(BaseModel):

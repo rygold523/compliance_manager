@@ -43,7 +43,7 @@ router = APIRouter()
 
 @router.get("/")
 def list_collectors():
-    return {"collectors": [{"name": name, "control_ids": spec["control_ids", "iam_users"], "frameworks": spec["frameworks"]} for name, spec in COLLECTORS.items()]}
+    return {"collectors": [{"name": name, "control_ids": spec.get("control_ids", []), "frameworks": spec.get("frameworks", {})} for name, spec in COLLECTORS.items()]}
 
 @router.post("/run")
 def run_collectors(payload: CollectorRunRequest, db: Session = Depends(get_db)):
