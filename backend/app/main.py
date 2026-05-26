@@ -1,39 +1,70 @@
 from app.api import role_dashboard
+from app.api import iam
 from app.api import role_collectors
+from app.api import iam
 from app.api import audit_readiness
+from app.api import iam
 from app.api import reports
+from app.api import iam
 from app.api import documents
+from app.api import iam
 from app.api import collector_mappings
+from app.api import iam
 from app.api import control_readiness
+from app.api import iam
 from app.api import controls
+from app.api import iam
 from app.api import windows_collectors
+from app.api import iam
 from app.api import remediations
+from app.api import iam
 from app.api import policies
+from app.api import iam
 from fastapi import FastAPI
 from app.continuous_compliance.api.routes import router as continuous_compliance_router
 from app.continuous_compliance.api.reporting_routes import router as continuous_compliance_reporting_router
 from app.continuous_compliance.api.state_routes import router as continuous_compliance_state_router
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.assets import router as assets_router
+from app.api import iam
 from app.api.findings import router as findings_router
+from app.api import iam
 from app.api.approvals import router as approvals_router
+from app.api import iam
 from app.api.evidence import router as evidence_router
+from app.api import iam
 from app.api.evidence_analysis import router as evidence_analysis_router
+from app.api import iam
 from app.api.chat import router as chat_router
+from app.api import iam
 from app.api.remote_exec import router as remote_exec_router
+from app.api import iam
 from app.api.ai_analysis import router as ai_analysis_router
+from app.api import iam
 from app.api.agents import router as agents_router
+from app.api import iam
 from app.api.collectors import router as collectors_router
+from app.api import iam
 from app.api.compliance import router as compliance_router
+from app.api import iam
 from app.api.reports import router as reports_router
+from app.api import iam
 from app.api.scanners import router as scanners_router
+from app.api import iam
 from app.api.report_pdf import router as report_pdf_router
+from app.api import iam
 from app.api.control_readiness_v2 import router as control_readiness_v2_router
+from app.api import iam
 from app.api.collector_coverage import router as collector_coverage_router
+from app.api import iam
 from app.api.windows_agent import router as windows_agent_router
+from app.api import iam
 from app.api.asset_details import router as asset_details_router
+from app.api import iam
 from app.api.package_updates import router as package_updates_router
+from app.api import iam
 from app.api.changelog import router as changelog_router
+from app.api import iam
 from app.core.database import Base, engine
 
 Base.metadata.create_all(bind=engine)
@@ -91,3 +122,9 @@ app.include_router(windows_agent_router)
 app.include_router(asset_details_router)
 app.include_router(package_updates_router)
 app.include_router(changelog_router)
+
+# IAM router
+try:
+    app.include_router(iam.router)
+except Exception:
+    pass
