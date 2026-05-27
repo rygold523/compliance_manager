@@ -2,6 +2,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.services.agent_post_deploy import post_deploy_linux_agent_setup
 from app.core.database import get_db
 from app.models import Asset, AgentDeployment
 from app.schemas.schemas import AgentDeployRequest
@@ -183,6 +184,13 @@ def update_asset_classification(asset_id: str, payload: dict, db: Session = Depe
 
     db.commit()
     db.refresh(asset)
+
+
+    # AUTO_INITIAL_BASELINE_COLLECTION
+    try:
+        post_deploy_linux_agent_setup(asset)
+    except Exception as exc:
+        print(f"Initial baseline collection failed for {asset.asset_id}: {exc}")
 
     return {
         "status": "updated",

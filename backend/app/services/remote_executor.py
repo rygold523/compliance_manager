@@ -1,93 +1,82 @@
-import re
-import paramiko
-from app.core.config import settings
+import subprocess
 
-BLOCKED_PATTERNS = [
-    r"rm\s+-rf", r"mkfs", r"dd\s+if=", r"shutdown", r"reboot", r"init\s+[06]",
-    r"chmod\s+-R\s+777", r"docker\s+build", r"docker\s+compose\s+build",
-    r"docker\s+pull", r"docker\s+run", r"DROP\s+DATABASE", r"TRUNCATE\s+TABLE",
-]
-
-ALLOWED_PREFIXES = [
-    "printf 'CPU_CORES='; nproc;",
-    "HELD=$(apt-mark showhold | tr",
-    "HELD=$(apt-mark showhold);",
-    "sudo apt-get upgrade -y",
-    "sudo apt-mark unhold",
-    "sudo apt-get install --only-upgrade -y",
+ALLOWED_COMMAND_PREFIXES = [
+    "hostname",
+    "uname",
     "cat /etc/os-release",
-    "hostname", "hostnamectl", "lsb_release", "uname", "uptime", "df", "free",
-    "ip", "ss", "apt-mark showhold", "apt-cache policy", "apt list --upgradable",
-    "dpkg -l", "timedatectl", "sudo apt-mark", "sudo apt-cache",
-    "sudo apt-get install --only-upgrade", "sudo nginx -t",
-    "sudo systemctl status nginx", "sudo systemctl reload nginx", "sudo journalctl",
-    "sudo tail", "sudo grep", "sudo find", "sudo cat", "sudo ufw status",
-    "sudo docker ps",
-    "if command -v ufw",
-    "if command -v docker",
-    "if command -v nft",
-    "if command -v iptables",
-    "sudo -n docker ps",
-    "sudo -n ufw status",
-    "sudo -n nft list ruleset",
-    "sudo -n iptables -S", "grep",
-    "sudo userdel compliance-agent",
+    "df ",
+    "free ",
+    "uptime",
+    "systemctl",
+    "docker ",
+    "sudo grep",
+    "sudo cat",
+    "sudo ss",
+    "sudo netstat",
+    "sudo ufw",
+    "sudo nft",
+    "sudo iptables",
+    "sudo lsblk",
+    "sudo findmnt",
+    "sudo apt",
+    "sudo dpkg",
+    "sudo /usr/local/lib/compliance/collectors/",
 ]
 
+def is_command_allowed(command: str) -> bool:
+    command = (command or "").strip()
+    return any(command == p.strip() or command.startswith(p) for p in ALLOWED_COMMAND_PREFIXES)
 
-def redact_output(value: str) -> str:
-    patterns = [
-        r"(?i)(password|token|secret|api_key)=\S+",
-        r"(?i)(authorization:\s*bearer\s+)[A-Za-z0-9._\-]+",
+def run_ssh_command(host: str, username: str, command: str, timeout: int = 120, port: int = 22) -> dict:
+    if not is_command_allowed(command):
+        return {
+            "stdout": "",
+            "stderr": "Command is not in the allowlist",
+            "exit_code": 126,
+        }
+
+    ssh_cmd = [
+        "ssh",
+        "-i", "/opt/ssh/id_rsa",
+        "-o", "IdentitiesOnly=yes",
+        "-o", "StrictHostKeyChecking=accept-new",
+        "-o", "BatchMode=yes",
+        "-p", str(port),
+        f"{username}@{host}",
+        command,
     ]
-    redacted = value or ""
-    for pattern in patterns:
-        redacted = re.sub(pattern, r"\1[REDACTED]", redacted)
-    return redacted
+
+    try:
+        result = subprocess.run(
+            ssh_cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+
+        return {
+            "stdout": result.stdout or "",
+            "stderr": result.stderr or "",
+            "exit_code": result.returncode,
+        }
+
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "stdout": exc.stdout or "",
+            "stderr": f"SSH command timed out after {timeout} seconds",
+            "exit_code": 124,
+        }
+
+    except Exception as exc:
+        return {
+            "stdout": "",
+            "stderr": str(exc),
+            "exit_code": 1,
+        }
 
 
-def validate_command(command: str) -> tuple[bool, str]:
-    for pattern in BLOCKED_PATTERNS:
-        if re.search(pattern, command, re.IGNORECASE):
-            return False, f"Blocked command pattern matched: {pattern}"
-
-    if settings.remote_exec_allow_arbitrary_commands:
-        return True, "Allowed by arbitrary command setting"
-
-    normalized = " ".join(command.split())
-    if any(normalized.startswith(prefix) for prefix in ALLOWED_PREFIXES):
-        return True, "Allowed"
-
-    return False, "Command is not in the allowlist"
-
-
-def run_ssh_command(host: str, username: str, command: str, key_path: str | None = None, timeout: int | None = None, port: int = 22) -> dict:
-    allowed, reason = validate_command(command)
-    if not allowed:
-        return {"allowed": False, "reason": reason, "stdout": "", "stderr": reason, "exit_code": 126}
-
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    client.connect(
-        hostname=host,
-        port=port,
-        username=username,
-        key_filename=key_path or settings.remote_exec_key,
-        timeout=timeout or settings.remote_exec_timeout_seconds,
-        banner_timeout=30,
-        auth_timeout=30,
-    )
-
-    stdin, stdout, stderr = client.exec_command(command, timeout=timeout or settings.remote_exec_timeout_seconds)
-    exit_code = stdout.channel.recv_exit_status()
-    out = stdout.read().decode(errors="replace")
-    err = stderr.read().decode(errors="replace")
-    client.close()
-
-    return {
-        "allowed": True,
-        "reason": "Executed",
-        "stdout": redact_output(out),
-        "stderr": redact_output(err),
-        "exit_code": exit_code,
-    }
+def validate_command(command: str) -> bool:
+    """
+    Compatibility wrapper for older API imports.
+    """
+    return is_command_allowed(command)

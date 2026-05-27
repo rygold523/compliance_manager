@@ -1,3 +1,4 @@
+import traceback
 from pathlib import Path
 from uuid import uuid4
 import json
@@ -63,7 +64,47 @@ def run_collectors(payload: CollectorRunRequest, db: Session = Depends(get_db)):
 
             for collector_name in payload.collectors:
                 run_id = f"COL-{uuid4().hex[:12].upper()}"
-                output = run_collector(asset, collector_name)
+                # COLLECTOR_ERROR_HARDENING_V2
+
+                try:
+
+                    try:
+                        output = run_collector(asset, collector_name)
+                        if not isinstance(output, dict):
+                            output = {"collector": collector_name, "asset_id": getattr(asset, "asset_id", None), "status": "failed", "stderr": "Collector returned non-dict result"}
+                    except Exception as exc:
+                        traceback.print_exc()
+                        output = {"collector": collector_name, "asset_id": getattr(asset, "asset_id", None), "status": "failed", "stderr": str(exc)}
+
+                    if not isinstance(output, dict):
+
+                        output = {
+
+                            "collector": collector_name,
+
+                            "asset_id": getattr(asset, "asset_id", None),
+
+                            "status": "failed",
+
+                            "stderr": "Collector returned non-dict result",
+
+                        }
+
+                except Exception as exc:
+
+                    traceback.print_exc()
+
+                    output = {
+
+                        "collector": collector_name,
+
+                        "asset_id": getattr(asset, "asset_id", None),
+
+                        "status": "failed",
+
+                        "stderr": str(exc),
+
+                    }
 
                 db.add(CollectorRun(
                     run_id=run_id,
@@ -121,9 +162,21 @@ def run_collectors(payload: CollectorRunRequest, db: Session = Depends(get_db)):
 
     results = []
 
-    for collector_name in payload.collectors:
+    # AUTO_INCLUDE_IAM_USERS
+    requested_collectors = list(payload.collectors or [])
+
+    if "iam_users" not in requested_collectors:
+        requested_collectors.append("iam_users")
+
+    for collector_name in requested_collectors:
         run_id = f"COL-{uuid4().hex[:12].upper()}"
-        output = run_collector(asset, collector_name)
+        try:
+            output = run_collector(asset, collector_name)
+            if not isinstance(output, dict):
+                output = {"collector": collector_name, "asset_id": getattr(asset, "asset_id", None), "status": "failed", "stderr": "Collector returned non-dict result"}
+        except Exception as exc:
+            traceback.print_exc()
+            output = {"collector": collector_name, "asset_id": getattr(asset, "asset_id", None), "status": "failed", "stderr": str(exc)}
 
         db.add(CollectorRun(
             run_id=run_id,
