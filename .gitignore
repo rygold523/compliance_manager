@@ -46,3 +46,10 @@ reports/
 Thumbs.db
 .vscode/
 .idea/
+
+# Local SSH material - never commit
+backend/ssh/
+*.pem
+*.key
+id_rsa
+id_ed25519
