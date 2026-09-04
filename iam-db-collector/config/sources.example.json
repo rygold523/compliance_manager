@@ -1,0 +1,16 @@
+[
+  {
+    "id": "example-postgres",
+    "name": "Example PostgreSQL",
+    "type": "postgres",
+    "host": "database.example.internal",
+    "port": 5432,
+    "database": "application_database",
+    "username": "compliance_iam_reader",
+    "password_env": "IAM_DB_PASSWORD_EXAMPLE",
+    "sslmode": "require",
+    "connect_timeout": 10,
+    "enabled": false,
+    "interval_minutes": 5
+  }
+]

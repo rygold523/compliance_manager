@@ -47,6 +47,11 @@ Thumbs.db
 .vscode/
 .idea/
 
+# IAM database collector secrets
+iam-db-collector/.env
+iam-db-collector/secrets/
+iam-db-collector/config/sources.json
+
 # Local SSH material - never commit
 backend/ssh/
 *.pem
