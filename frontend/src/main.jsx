@@ -280,6 +280,23 @@ const API = import.meta.env.VITE_API_BASE_URL || `${window.location.protocol}//$
 
 
 const DASHBOARD_CACHE_KEY = "compliance_manager_dashboard_cache_v1";
+const ACTIVE_PAGE_KEY = "compliance_manager_active_page_v1";
+const VALID_PAGES = new Set([
+  "dashboard",
+  "iam",
+  "assets",
+  "collectors",
+  "changelog"
+]);
+
+function loadActivePage() {
+  try {
+    const page = sessionStorage.getItem(ACTIVE_PAGE_KEY);
+    return VALID_PAGES.has(page) ? page : "dashboard";
+  } catch {
+    return "dashboard";
+  }
+}
 
 function loadDashboardCache() {
   try {
@@ -451,7 +468,7 @@ function Section({ title, children }) {
   );
 }
 
-function DataTable({ columns, rows }) {
+function DataTable({ columns, rows, emptyText = "No records found." }) {
   return (
     <table>
       <thead>
@@ -464,7 +481,7 @@ function DataTable({ columns, rows }) {
       <tbody>
         {!rows || rows.length === 0 ? (
           <tr>
-            <td colSpan={columns.length}>No records found.</td>
+            <td colSpan={columns.length}>{emptyText}</td>
           </tr>
         ) : (
           rows.map((row, idx) => (
@@ -529,14 +546,19 @@ function App() {
   };
 
   const [showDeployModal, setShowDeployModal] = useState(false);
-  const [activePage, setActivePage] = useState("dashboard");
+  const [activePage, setActivePage] = useState(loadActivePage);
   const cacheHydratedRef = useRef(false);
   const [assetDetails, setAssetDetails] = useState({ assets: [] });
+  const [assetDetailsLoaded, setAssetDetailsLoaded] = useState(false);
+  const [assetDetailsLoading, setAssetDetailsLoading] = useState(false);
+  const [assetDetailsError, setAssetDetailsError] = useState("");
   const [changelogEvents, setChangelogEvents] = useState([]);
+  const [changelogNoteDrafts, setChangelogNoteDrafts] = useState({});
+  const [agentLifecycle, setAgentLifecycle] = useState([]);
   const [agentMode, setAgentMode] = useState("deploy");
   const [agentForm, setAgentForm] = useState(emptyAgentForm);
 
-  async function refresh() {
+  async function refreshDashboard(signal) {
     if (!cacheHydratedRef.current) {
       const cached = loadDashboardCache();
 
@@ -555,27 +577,29 @@ function App() {
         setControlReadiness(cached.controlReadiness || { summary: {}, framework_scores: {}, controls: [] });
         setAuditReadiness(cached.auditReadiness || { frameworks: [] });
         setCollectorCoverage(cached.collectorCoverage || { summary: {}, collectors: [] });
+        setAgentLifecycle(Array.isArray(cached.agentLifecycle) ? cached.agentLifecycle : []);
         setAssetDetails(cached.assetDetails || { assets: [] });
       }
 
       cacheHydratedRef.current = true;
     }
 
-    const [h, a, f, e, s, c, env, p, d, r, ctrl, cr, ar, cc] = await Promise.all([
-      fetch(`${API}/api/health`).then(r => r.ok ? r.json() : Promise.reject(new Error("health check failed"))),
-      fetch(`${API}/api/assets/`).then(r => r.json()),
-      fetch(`${API}/api/findings/`).then(r => r.json()),
-      fetch(`${API}/api/evidence/`).then(r => r.json()),
-      fetch(`${API}/api/compliance/score?environment=${selectedEnvironment}`).then(r => r.json()),
-      fetch(`${API}/api/collector-mappings/`).then(r => r.json()).catch(() => ({ collectors: [] })),
-      fetch(`${API}/api/compliance/environments`).then(r => r.json()),
-      fetch(`${API}/api/policies/`).then(r => r.json()).catch(() => []),
-      fetch(`${API}/api/documents/`).then(r => r.json()).catch(() => []),
-      fetch(`${API}/api/remediations/`).then(r => r.json()).catch(() => []),
-      fetch(`${API}/api/controls/`).then(r => r.json()).catch(() => []),
-      fetch(`${API}/api/compliance/control-readiness/`).then(r => r.json()).catch(() => ({ summary: {}, framework_scores: {}, controls: [] })),
-      fetch(`${API}/api/audit-readiness/`).then(r => r.json()).catch(() => ({ frameworks: [] })),
-      fetch(`${API}/api/collector-coverage/`).then(r => r.json()).catch(() => ({ summary: {}, collectors: [] }))
+    const [h, a, f, e, s, c, env, p, d, r, ctrl, cr, ar, cc, al] = await Promise.all([
+      fetch(`${API}/api/health`, { signal }).then(r => r.ok ? r.json() : Promise.reject(new Error("health check failed"))),
+      fetch(`${API}/api/assets/`, { signal }).then(r => r.json()),
+      fetch(`${API}/api/findings/`, { signal }).then(r => r.json()),
+      fetch(`${API}/api/evidence/`, { signal }).then(r => r.json()),
+      fetch(`${API}/api/compliance/score?environment=${selectedEnvironment}`, { signal }).then(r => r.json()),
+      fetch(`${API}/api/collector-mappings/`, { signal }).then(r => r.json()).catch(error => error.name === "AbortError" ? Promise.reject(error) : ({ collectors: [] })),
+      fetch(`${API}/api/compliance/environments`, { signal }).then(r => r.json()),
+      fetch(`${API}/api/policies/`, { signal }).then(r => r.json()).catch(error => error.name === "AbortError" ? Promise.reject(error) : []),
+      fetch(`${API}/api/documents/`, { signal }).then(r => r.json()).catch(error => error.name === "AbortError" ? Promise.reject(error) : []),
+      fetch(`${API}/api/remediations/`, { signal }).then(r => r.json()).catch(error => error.name === "AbortError" ? Promise.reject(error) : []),
+      fetch(`${API}/api/controls/`, { signal }).then(r => r.json()).catch(error => error.name === "AbortError" ? Promise.reject(error) : []),
+      fetch(`${API}/api/compliance/control-readiness/`, { signal }).then(r => r.json()).catch(error => error.name === "AbortError" ? Promise.reject(error) : ({ summary: {}, framework_scores: {}, controls: [] })),
+      fetch(`${API}/api/audit-readiness/`, { signal }).then(r => r.json()).catch(error => error.name === "AbortError" ? Promise.reject(error) : ({ frameworks: [] })),
+      fetch(`${API}/api/collector-coverage/`, { signal }).then(r => r.json()).catch(error => error.name === "AbortError" ? Promise.reject(error) : ({ summary: {}, collectors: [] })),
+      fetch(`${API}/api/agent-lifecycle/`, { signal }).then(r => r.json()).catch(error => error.name === "AbortError" ? Promise.reject(error) : ({ assets: [] }))
     ]);
 
     const filteredFindings = filterStaleFindings(Array.isArray(f) ? f : [], Array.isArray(e) ? e : []);
@@ -586,7 +610,7 @@ function App() {
     setEvidence(Array.isArray(e) ? e : []);
     setControlReadiness(cr || { summary: {}, framework_scores: {}, controls: [] });
     setAuditReadiness(ar || { frameworks: [] });
-    
+
     const mergedScores = {
       ...(s || {}),
       ...((cr && cr.framework_scores) || {})
@@ -616,41 +640,223 @@ function App() {
       controlReadiness: cr || { summary: {}, framework_scores: {}, controls: [] },
       auditReadiness: ar || { frameworks: [] },
       collectorCoverage: typeof cc !== "undefined" ? cc : { summary: {}, collectors: [] },
+      agentLifecycle: (al && al.assets) || [],
       assetDetails
     });
 
-    try {
-      const changelogResponse = await fetch(`${API}/api/changelog/`);
-      if (changelogResponse.ok) {
-        const changelogData = await changelogResponse.json();
-        setChangelogEvents(changelogData.events || []);
-      }
-
-      const assetDetailsResponse = await fetch(`${API}/api/asset-details/`);
-      if (assetDetailsResponse.ok) {
-        setAssetDetails(await assetDetailsResponse.json());
-      }
-    } catch (error) {
-      console.error("Failed to load asset details", error);
-    }
     setCollectorCoverage(cc || { summary: {}, collectors: [] });
+    setAgentLifecycle((al && al.assets) || []);
   }
 
-
-  async function loadChangelog() {
+  async function loadAssetDetails(signal) {
+    setAssetDetailsLoading(true);
+    setAssetDetailsError("");
     try {
-      const response = await fetch(`${API}/api/changelog/`);
+      const response = await fetch(`${API}/api/asset-details/`, {
+        signal
+      });
+      if (!response.ok) {
+        throw new Error(
+          `Asset Details returned HTTP ${response.status}`
+        );
+      }
+      setAssetDetails(await response.json());
+      setAssetDetailsLoaded(true);
+    } catch (error) {
+      if (error.name !== "AbortError") {
+        console.error("Failed to load asset details", error);
+        setAssetDetailsError(String(error));
+      }
+    } finally {
+      if (!signal?.aborted) {
+        setAssetDetailsLoading(false);
+      }
+    }
+  }
+
+  async function loadCollectors(signal) {
+    const response = await fetch(`${API}/api/collector-mappings/`, {
+      signal
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Collector mappings returned HTTP ${response.status}`
+      );
+    }
+    const data = await response.json();
+    setCollectors(data.collectors || []);
+  }
+
+  async function loadChangelog(signal) {
+    try {
+      const response = await fetch(
+        `${API}/api/changelog/`,
+        { signal }
+      );
+
       if (!response.ok) {
         setChangelogEvents([]);
         return;
       }
 
       const data = await response.json();
-      setChangelogEvents(Array.isArray(data.events) ? data.events : []);
+      const events = Array.isArray(data.events)
+        ? data.events
+        : [];
+
+      setChangelogEvents(events);
+
+      setChangelogNoteDrafts(
+        Object.fromEntries(
+          events
+            .filter(event => event.event_id)
+            .map(event => [
+              event.event_id,
+              {
+                note: event.note || "",
+                jira_url: event.jira_url || ""
+              }
+            ])
+        )
+      );
     } catch (error) {
-      console.error("Failed to load changelog", error);
-      setChangelogEvents([]);
+      if (error.name !== "AbortError") {
+        console.error(
+          "Failed to load changelog",
+          error
+        );
+        setChangelogEvents([]);
+      }
     }
+  }
+
+  function updateChangelogNoteDraft(
+    eventId,
+    field,
+    value
+  ) {
+    setChangelogNoteDrafts(previous => ({
+      ...previous,
+      [eventId]: {
+        note:
+          previous[eventId]?.note
+          ?? "",
+        jira_url:
+          previous[eventId]?.jira_url
+          ?? "",
+        [field]: value
+      }
+    }));
+  }
+
+  async function saveChangelogNote(event) {
+    if (!event.event_id) {
+      alert(
+        "This changelog event does not have a valid event ID."
+      );
+      return;
+    }
+
+    const draft =
+      changelogNoteDrafts[event.event_id]
+      || {
+        note: event.note || "",
+        jira_url: event.jira_url || ""
+      };
+
+    let response;
+
+    try {
+      response = await fetch(
+        `${API}/api/changelog/${encodeURIComponent(
+          event.event_id
+        )}/note`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            note: draft.note || "",
+            jira_url: draft.jira_url || ""
+          })
+        }
+      );
+    } catch (error) {
+      alert(
+        `Unable to save the changelog note: ${
+          error.message
+        }`
+      );
+      return;
+    }
+
+    let data = {};
+
+    try {
+      data = await response.json();
+    } catch {
+      data = {};
+    }
+
+    if (!response.ok) {
+      const detail =
+        typeof data.detail === "string"
+          ? data.detail
+          : JSON.stringify(
+              data.detail || data,
+              null,
+              2
+            );
+
+      alert(
+        detail
+        || "Unable to save the changelog note."
+      );
+      return;
+    }
+
+    setChangelogEvents(previous =>
+      previous.map(item =>
+        item.event_id === event.event_id
+          ? {
+              ...item,
+              note: data.note || "",
+              jira_url: data.jira_url || ""
+            }
+          : item
+      )
+    );
+
+    setChangelogNoteDrafts(previous => ({
+      ...previous,
+      [event.event_id]: {
+        note: data.note || "",
+        jira_url: data.jira_url || ""
+      }
+    }));
+
+    alert(
+      data.note || data.jira_url
+        ? "Changelog note saved."
+        : "Changelog note cleared."
+    );
+  }
+
+  async function refresh(signal) {
+    if (activePage === "assets") {
+      return loadAssetDetails(signal);
+    }
+    if (activePage === "collectors") {
+      return loadCollectors(signal);
+    }
+    if (activePage === "changelog") {
+      return loadChangelog(signal);
+    }
+    if (activePage === "iam") {
+      return;
+    }
+    return refreshDashboard(signal);
   }
 
   async function runCollectors(asset_id) {
@@ -694,7 +900,7 @@ function App() {
     if (agentMode === "upgrade") return upgradeAgent();
   }
 
-  
+
   async function saveAssetClassification(assetId) {
     if (!assetId) return;
 
@@ -820,19 +1026,68 @@ async function deployAgent() {
       return;
     }
 
-    alert(`Package update completed or triggered for ${packageUpdateConfirm.package_name}.`);
-
-    await fetch(`${API}/api/collectors/run`, {
+    const collectionResponse = await fetch(`${API}/api/collectors/run`, {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({
         asset_id: packageUpdateConfirm.asset_id,
-        collectors: ["packages", "apt_policy", "held_packages"]
+        collectors: ["package_inventory"]
       })
     });
 
+    const collectionData =
+      await collectionResponse.json()
+        .catch(() => ({}));
+
+    const failedCollectors = (
+      collectionData.results || []
+    ).filter(
+      result => result.status !== "completed"
+    );
+
+    if (
+      !collectionResponse.ok
+      || failedCollectors.length > 0
+    ) {
+      const failureSummary =
+        failedCollectors.length > 0
+          ? failedCollectors
+              .map(
+                result =>
+                  `${result.collector}: ${result.status}`
+              )
+              .join(", ")
+          : (
+              collectionData.detail
+              || collectionResponse.statusText
+              || "Unknown collector failure"
+            );
+
+      alert(
+        `Package update succeeded, but evidence refresh failed: ${
+          failureSummary
+        }`
+      );
+
+      setPackageUpdateConfirm(null);
+      setModalData(null);
+      await loadChangelog();
+      await loadAssetDetails();
+      return;
+    }
+
+    const packageName =
+      packageUpdateConfirm.package_name;
+
     setPackageUpdateConfirm(null);
-    await refresh();
+    setModalData(null);
+
+    await loadChangelog();
+    await loadAssetDetails();
+
+    alert(
+      `Package update succeeded for ${packageName}.`
+    );
   }
 
 
@@ -862,24 +1117,68 @@ async function deployAgent() {
       return;
     }
 
-    alert(
-      bulkPackageUpdateConfirm.include_held
-        ? "Bulk package update completed or triggered, including held packages."
-        : "Bulk package update completed or triggered, excluding held packages."
-    );
-
-    await fetch(`${API}/api/collectors/run`, {
+    const collectionResponse = await fetch(`${API}/api/collectors/run`, {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({
         asset_id: bulkPackageUpdateConfirm.asset_id,
-        collectors: ["packages", "apt_policy", "held_packages"]
+        collectors: ["package_inventory"]
       })
     });
 
+    const collectionData =
+      await collectionResponse.json()
+        .catch(() => ({}));
+
+    const failedCollectors = (
+      collectionData.results || []
+    ).filter(
+      result => result.status !== "completed"
+    );
+
+    if (
+      !collectionResponse.ok
+      || failedCollectors.length > 0
+    ) {
+      const failureSummary =
+        failedCollectors.length > 0
+          ? failedCollectors
+              .map(
+                result =>
+                  `${result.collector}: ${result.status}`
+              )
+              .join(", ")
+          : (
+              collectionData.detail
+              || collectionResponse.statusText
+              || "Unknown collector failure"
+            );
+
+      alert(
+        `Bulk package update succeeded, but evidence refresh failed: ${
+          failureSummary
+        }`
+      );
+
+      setBulkPackageUpdateConfirm(null);
+      await loadChangelog();
+      await loadAssetDetails();
+      return;
+    }
+
+    const includedHeldPackages =
+      bulkPackageUpdateConfirm.include_held;
+
     setBulkPackageUpdateConfirm(null);
+
     await loadChangelog();
-    await refresh();
+    await loadAssetDetails();
+
+    alert(
+      includedHeldPackages
+        ? "Bulk package update succeeded, including held packages."
+        : "Bulk package update succeeded, excluding held packages."
+    );
   }
 
   async function analyzeEvidence() {
@@ -1174,8 +1473,21 @@ async function deployAgent() {
     await refresh();
   }
 
-  useEffect(() => { refresh(); }, [selectedEnvironment]);
-  useEffect(() => { if (activePage === "changelog") loadChangelog(); }, [activePage]);
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(ACTIVE_PAGE_KEY, activePage);
+    } catch {
+      // Ignore browser storage failures.
+    }
+
+    const controller = new AbortController();
+    refresh(controller.signal).catch(error => {
+      if (error.name !== "AbortError") {
+        console.error("Failed to refresh active view", error);
+      }
+    });
+    return () => controller.abort();
+  }, [activePage, selectedEnvironment]);
 
   return (
     <main>
@@ -1257,10 +1569,10 @@ async function deployAgent() {
 
           <button className={activePage === "assets" ? "active" : ""} onClick={() => setActivePage("assets")}>Asset Details</button>
           <button className={activePage === "collectors" ? "active" : ""} onClick={() => setActivePage("collectors")}>Collectors</button>
-          <button className={activePage === "changelog" ? "active" : ""} onClick={() => { setActivePage("changelog"); loadChangelog(); }}>Changelog</button>
+          <button className={activePage === "changelog" ? "active" : ""} onClick={() => setActivePage("changelog")}>Changelog</button>
         </div>
 
-        
+
 {activePage === "iam" && (
   <IAM />
 )}
@@ -1604,6 +1916,14 @@ async function deployAgent() {
 
         {activePage === "assets" && (
           <>
+            {assetDetailsLoading && assetDetailsLoaded && (
+              <p className="view-status">Refreshing Asset Details…</p>
+            )}
+
+            {assetDetailsError && (
+              <div className="view-error">{assetDetailsError}</div>
+            )}
+
             <Section title="System Resources">
               <DataTable
                 columns={[
@@ -1629,6 +1949,11 @@ async function deployAgent() {
                   { key: "disk_total", label: "Root Disk Allocated", render: r => r.resources?.disk_total || "Unknown" }
                 ]}
                 rows={assetDetails.assets || []}
+                emptyText={
+                  assetDetailsLoading && !assetDetailsLoaded
+                    ? "Loading asset resources…"
+                    : "No asset resources found."
+                }
               />
             </Section>
 
@@ -1686,6 +2011,11 @@ async function deployAgent() {
                   }
                 ]}
                 rows={assetDetails.assets || []}
+                emptyText={
+                  assetDetailsLoading && !assetDetailsLoaded
+                    ? "Loading asset details…"
+                    : "No asset details found."
+                }
               />
             </Section>
           </>
@@ -1700,22 +2030,95 @@ async function deployAgent() {
                   <th>Event Type</th>
                   <th>Asset</th>
                   <th>Summary</th>
+                  <th>Note</th>
+                  <th>Jira Ticket</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {changelogEvents.length === 0 ? (
                   <tr>
-                    <td colSpan="4">No changelog events recorded.</td>
+                    <td colSpan="7">
+                      No changelog events recorded.
+                    </td>
                   </tr>
                 ) : (
-                  changelogEvents.map((event, idx) => (
-                    <tr key={idx}>
-                      <td>{event.timestamp || "-"}</td>
-                      <td>{event.event_type || "-"}</td>
-                      <td>{event.asset_id || "-"}</td>
-                      <td>{event.summary || "-"}</td>
-                    </tr>
-                  ))
+                  changelogEvents.map((event, idx) => {
+                    const draft =
+                      changelogNoteDrafts[event.event_id]
+                      || {
+                        note: event.note || "",
+                        jira_url: event.jira_url || ""
+                      };
+
+                    return (
+                      <tr key={event.event_id || idx}>
+                        <td>{event.timestamp || "-"}</td>
+                        <td>{event.event_type || "-"}</td>
+                        <td>{event.asset_id || "-"}</td>
+                        <td>{event.summary || "-"}</td>
+                        <td>
+                          <textarea
+                            value={draft.note}
+                            maxLength={4000}
+                            placeholder="Add an audit note"
+                            style={{
+                              minWidth: "220px",
+                              minHeight: "58px",
+                              resize: "vertical"
+                            }}
+                            onChange={change =>
+                              updateChangelogNoteDraft(
+                                event.event_id,
+                                "note",
+                                change.target.value
+                              )
+                            }
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="url"
+                            value={draft.jira_url}
+                            maxLength={2048}
+                            placeholder="https://.../browse/ISSUE-123"
+                            style={{
+                              minWidth: "260px"
+                            }}
+                            onChange={change =>
+                              updateChangelogNoteDraft(
+                                event.event_id,
+                                "jira_url",
+                                change.target.value
+                              )
+                            }
+                          />
+
+                          {event.jira_url && (
+                            <div style={{ marginTop: "6px" }}>
+                              <a
+                                href={event.jira_url}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                Open Jira ticket
+                              </a>
+                            </div>
+                          )}
+                        </td>
+                        <td>
+                          <button
+                            disabled={!event.event_id}
+                            onClick={() =>
+                              saveChangelogNote(event)
+                            }
+                          >
+                            Save
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -2135,7 +2538,48 @@ async function deployAgent() {
         </div>
       )}
           <ContinuousComplianceState />
-      </main>
+
+          <section className="panel">
+            <h2>Agent Lifecycle</h2>
+            <p className="muted">
+              Agent versioning, collector integrity validation, manifest status, and drift monitoring.
+            </p>
+
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Asset</th>
+                    <th>Hostname</th>
+                    <th>Address</th>
+                    <th>Agent Version</th>
+                    <th>Expected Version</th>
+                    <th>Status</th>
+                    <th>Manifest</th>
+                    <th>Collector Drift</th>
+                    <th>Last Seen</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {agentLifecycle.map((a) => (
+                    <tr key={a.asset_id}>
+                      <td>{a.asset_id}</td>
+                      <td>{a.hostname || ""}</td>
+                      <td>{a.address || ""}</td>
+                      <td>{a.agent_version || "Unknown"}</td>
+                      <td>{a.expected_agent_version || "Unknown"}</td>
+                      <td>{a.agent_current ? "Current" : "Outdated"}</td>
+                      <td>{a.collector_manifest_version || "Missing"}</td>
+                      <td>{a.collector_drift_detected === false ? "No Drift" : "Drift / Unknown"}</td>
+                      <td>{a.last_seen || "Never"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+</main>
   );
 }
 

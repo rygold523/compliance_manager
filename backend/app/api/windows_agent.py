@@ -1,5 +1,6 @@
 from pathlib import Path
 from uuid import uuid4
+from datetime import datetime, timezone
 import json
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -80,6 +81,7 @@ def ingest_windows_agent(payload: WindowsAgentPayload, db: Session = Depends(get
 
     asset.os_family = "windows"
     asset.agent_status = "deployed"
+    asset.last_seen = datetime.now(timezone.utc)
 
     results = []
 

@@ -19,7 +19,6 @@ SELECT
     rolconnlimit AS connection_limit,
     rolvaliduntil
 FROM pg_catalog.pg_roles
-WHERE rolcanlogin = TRUE
 ORDER BY rolname;
 """
 

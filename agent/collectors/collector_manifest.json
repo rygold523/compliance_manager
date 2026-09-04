@@ -1,0 +1,56 @@
+{
+  "collectors": {
+    "agent_lifecycle.py": {
+      "sha256": "226cb2001369615365a8944d938dea32d723034bbd058213940d7d28b179b677",
+      "size_bytes": 1715,
+      "version": "2026.09.04.3"
+    },
+    "collector_health.py": {
+      "sha256": "18d45fb6e00e6f06443edbf2a82e93ab540365baedccbca63626b1fbb8260f6f",
+      "size_bytes": 1288,
+      "version": "2026.09.04.3"
+    },
+    "disk_usage.py": {
+      "sha256": "339240b46318831a90921bf8d863d3d3754e830ee99ce98b4be1883266936644",
+      "size_bytes": 733,
+      "version": "2026.09.04.3"
+    },
+    "docker_inventory.py": {
+      "sha256": "92ad3ecddd115c17ea362cd32fca7d66b6d302ab2202dc0c95efd5e75b2556eb",
+      "size_bytes": 1239,
+      "version": "2026.09.04.3"
+    },
+    "iam_users.py": {
+      "sha256": "2bab80cadd475eb202b4a56137caadc1f2620487020ebc45f2c685121ffd04c6",
+      "size_bytes": 8244,
+      "version": "2026.09.04.3"
+    },
+    "install_collectors.py": {
+      "sha256": "38317579a549c3c7ab4c2b0c6e6f7e1487e9caff4539e855c11c2308b4703222",
+      "size_bytes": 2006,
+      "version": "2026.09.04.3"
+    },
+    "listening_ports.py": {
+      "sha256": "2f32fa6399a97dcc2c2ce8c91d6475accb02673f33f63d4d1c10b2c905caa930",
+      "size_bytes": 928,
+      "version": "2026.09.04.3"
+    },
+    "os_inventory.py": {
+      "sha256": "64149d2a66c24b67925e505f2b528ff685e5b685599abf4ea7d6d837d57d676f",
+      "size_bytes": 738,
+      "version": "2026.09.04.3"
+    },
+    "package_inventory.py": {
+      "sha256": "77237b26f58c5e35bbad1198f61a3bbf09b4858c60cf697d71ec5d781c33642a",
+      "size_bytes": 2081,
+      "version": "2026.09.04.3"
+    },
+    "package_manager.py": {
+      "sha256": "e1f32c9ec973589ab55a106c82bc724b1541ab581f638a6742877e482ce2e616",
+      "size_bytes": 6450,
+      "version": "2026.09.04.3"
+    }
+  },
+  "generated_at": "2026-09-04T17:49:28.268787+00:00",
+  "manifest_version": "2026.09.04.3"
+}

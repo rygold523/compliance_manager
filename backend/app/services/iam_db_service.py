@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import psycopg2
+from app.api.changelog import write_changelog
 import psycopg2.extras
 
 
@@ -115,8 +116,161 @@ def ingest(
         "database_privileges"
     ) or []
 
+    current_users = {
+        str(account.get("username")).strip()
+        for account in accounts
+        if account.get("username") is not None
+        and str(account.get("username")).strip()
+        and account.get(
+            "login_enabled",
+            False,
+        ) is True
+    }
+
+    current_roles = {
+        str(account.get("username")).strip()
+        for account in accounts
+        if account.get("username") is not None
+        and str(account.get("username")).strip()
+        and account.get(
+            "login_enabled",
+            False,
+        ) is not True
+    }
+
+    current_memberships: set[
+        tuple[str, str, str]
+    ] = set()
+
+    for membership in memberships:
+        username = str(
+            membership.get("username")
+            or ""
+        ).strip()
+
+        role_name = str(
+            membership.get("role_name")
+            or ""
+        ).strip()
+
+        membership_type = str(
+            membership.get(
+                "membership_type",
+                "direct",
+            )
+            or "direct"
+        ).strip()
+
+        if username and role_name:
+            current_memberships.add(
+                (
+                    username,
+                    role_name,
+                    membership_type,
+                )
+            )
+
+    previous_users: set[str] = set()
+    previous_roles: set[str] = set()
+    had_previous_role_inventory = False
+
+    previous_memberships: set[
+        tuple[str, str, str]
+    ] = set()
+
+    had_previous_snapshot = False
+
     with get_connection() as connection:
         with connection.cursor() as cursor:
+
+            cursor.execute(
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM iam_db_sync_runs
+                    WHERE source_key = %s
+                      AND status = 'success'
+                );
+                """,
+                (
+                    source_key,
+                ),
+            )
+
+            had_previous_snapshot = bool(
+                cursor.fetchone()[0]
+            )
+
+            if had_previous_snapshot:
+                cursor.execute(
+                    """
+                    SELECT
+                        username,
+                        login_enabled
+                    FROM iam_db_accounts
+                    WHERE source_key = %s
+                      AND active = TRUE;
+                    """,
+                    (
+                        source_key,
+                    ),
+                )
+
+                for (
+                    previous_username,
+                    previous_login_enabled,
+                ) in cursor.fetchall():
+                    normalized_username = str(
+                        previous_username
+                        or ""
+                    ).strip()
+
+                    if not normalized_username:
+                        continue
+
+                    if previous_login_enabled is True:
+                        previous_users.add(
+                            normalized_username
+                        )
+                    else:
+                        previous_roles.add(
+                            normalized_username
+                        )
+
+                had_previous_role_inventory = bool(
+                    previous_roles
+                )
+
+                cursor.execute(
+                    """
+                    SELECT
+                        username,
+                        role_name,
+                        membership_type
+                    FROM iam_db_memberships
+                    WHERE source_key = %s
+                      AND active = TRUE;
+                    """,
+                    (
+                        source_key,
+                    ),
+                )
+
+                previous_memberships = {
+                    (
+                        str(row[0]).strip(),
+                        str(row[1]).strip(),
+                        str(
+                            row[2]
+                            or "direct"
+                        ).strip(),
+                    )
+                    for row in cursor.fetchall()
+                    if row[0] is not None
+                    and str(row[0]).strip()
+                    and row[1] is not None
+                    and str(row[1]).strip()
+                }
 
             cursor.execute(
                 """
@@ -500,6 +654,163 @@ def ingest(
                     len(privileges),
                     collected_at,
                 ),
+            )
+
+    if had_previous_snapshot:
+        event_details = {
+            "source_key": source_key,
+            "source_name": source_name,
+            "source_type": source.get(
+                "type",
+                "postgres",
+            ),
+            "host": source.get("host"),
+            "port": source.get("port"),
+            "database": source.get(
+                "database"
+            ),
+        }
+
+        added_users = sorted(
+            current_users
+            - previous_users
+        )
+
+        removed_users = sorted(
+            previous_users
+            - current_users
+        )
+
+        added_roles = []
+        removed_roles = []
+
+        if had_previous_role_inventory:
+            added_roles = sorted(
+                current_roles
+                - previous_roles
+            )
+
+            removed_roles = sorted(
+                previous_roles
+                - current_roles
+            )
+
+        added_memberships = sorted(
+            current_memberships
+            - previous_memberships
+        )
+
+        removed_memberships = sorted(
+            previous_memberships
+            - current_memberships
+        )
+
+        for username in added_users:
+            write_changelog(
+                event_type="db_user_added",
+                asset_id=source_key,
+                summary=(
+                    f"Database user {username} added "
+                    f"to {source_name}."
+                ),
+                details={
+                    **event_details,
+                    "username": username,
+                    "login_enabled": True,
+                },
+            )
+
+        for username in removed_users:
+            write_changelog(
+                event_type="db_user_removed",
+                asset_id=source_key,
+                summary=(
+                    f"Database user {username} removed "
+                    f"from {source_name}."
+                ),
+                details={
+                    **event_details,
+                    "username": username,
+                    "login_enabled": True,
+                },
+            )
+
+        for role_name in added_roles:
+            write_changelog(
+                event_type="db_role_added",
+                asset_id=source_key,
+                summary=(
+                    f"Database role {role_name} added "
+                    f"to {source_name}."
+                ),
+                details={
+                    **event_details,
+                    "role_name": role_name,
+                    "login_enabled": False,
+                },
+            )
+
+        for role_name in removed_roles:
+            write_changelog(
+                event_type="db_role_removed",
+                asset_id=source_key,
+                summary=(
+                    f"Database role {role_name} removed "
+                    f"from {source_name}."
+                ),
+                details={
+                    **event_details,
+                    "role_name": role_name,
+                    "login_enabled": False,
+                },
+            )
+
+        for (
+            username,
+            role_name,
+            membership_type,
+        ) in added_memberships:
+            write_changelog(
+                event_type=(
+                    "db_role_membership_added"
+                ),
+                asset_id=source_key,
+                summary=(
+                    f"Database role {role_name} assigned "
+                    f"to {username} on {source_name}."
+                ),
+                details={
+                    **event_details,
+                    "username": username,
+                    "role_name": role_name,
+                    "membership_type": (
+                        membership_type
+                    ),
+                },
+            )
+
+        for (
+            username,
+            role_name,
+            membership_type,
+        ) in removed_memberships:
+            write_changelog(
+                event_type=(
+                    "db_role_membership_removed"
+                ),
+                asset_id=source_key,
+                summary=(
+                    f"Database role {role_name} removed "
+                    f"from {username} on {source_name}."
+                ),
+                details={
+                    **event_details,
+                    "username": username,
+                    "role_name": role_name,
+                    "membership_type": (
+                        membership_type
+                    ),
+                },
             )
 
     return {

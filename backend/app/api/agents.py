@@ -1,4 +1,5 @@
 from uuid import uuid4
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -13,6 +14,7 @@ from app.services.evidence_collectors import run_collector, COLLECTORS
 from app.services.evidence_finding_analyzer import analyze_all_evidence
 from app.models import Evidence, CollectorRun
 from app.core.config import settings
+from app.api.changelog import write_changelog
 
 from pathlib import Path
 import json
@@ -26,6 +28,9 @@ def run_initial_collection(db: Session, asset: Asset):
     for collector_name in COLLECTORS.keys():
         run_id = f"COL-{uuid4().hex[:12].upper()}"
         output = run_collector(asset, collector_name)
+
+        if output.get("status") == "completed":
+            asset.last_seen = datetime.now(timezone.utc)
 
         db.add(CollectorRun(
             run_id=run_id,
@@ -157,9 +162,36 @@ def deploy(payload: AgentDeployRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(existing)
 
+    deployment_succeeded = (
+        "deployed"
+        in str(
+            result.get("status", "")
+        ).lower()
+    )
+
+    if deployment_succeeded:
+        write_changelog(
+            event_type="agent_deployed",
+            asset_id=existing.asset_id,
+            summary=(
+                f"Compliance agent deployed successfully "
+                f"to {existing.hostname or existing.asset_id}."
+            ),
+            details={
+                "deployment_id": deployment_id,
+                "hostname": existing.hostname,
+                "address": existing.address,
+                "environment": existing.environment,
+                "status": result.get("status"),
+            },
+        )
+
     collection_result = None
-    if result.get("status") in ["deployed", "upgraded:deployed"] or "deployed" in str(result.get("status", "")):
-        collection_result = run_initial_collection(db, existing)
+    if deployment_succeeded:
+        collection_result = run_initial_collection(
+            db,
+            existing,
+        )
 
     return {
         "deployment_id": deployment_id,
@@ -261,9 +293,36 @@ def upgrade_agent(asset_id: str, payload: AgentDeployRequest, db: Session = Depe
     db.commit()
     db.refresh(asset)
 
+    upgrade_succeeded = (
+        "deployed"
+        in str(
+            result.get("status", "")
+        ).lower()
+    )
+
+    if upgrade_succeeded:
+        write_changelog(
+            event_type="agent_upgraded",
+            asset_id=asset.asset_id,
+            summary=(
+                f"Compliance agent upgraded successfully "
+                f"on {asset.hostname or asset.asset_id}."
+            ),
+            details={
+                "deployment_id": deployment_id,
+                "hostname": asset.hostname,
+                "address": asset.address,
+                "environment": asset.environment,
+                "status": result.get("status"),
+            },
+        )
+
     collection_result = None
-    if result.get("status") in ["deployed", "upgraded:deployed"] or "deployed" in str(result.get("status", "")):
-        collection_result = run_initial_collection(db, asset)
+    if upgrade_succeeded:
+        collection_result = run_initial_collection(
+            db,
+            asset,
+        )
 
     return {
         "deployment_id": deployment_id,
@@ -299,6 +358,21 @@ def remove_agent(asset_id: str, db: Session = Depends(get_db)):
 
     asset.agent_status = "removed"
     db.commit()
+
+    write_changelog(
+        event_type="agent_removed",
+        asset_id=asset.asset_id,
+        summary=(
+            f"Compliance agent removed successfully "
+            f"from {asset.hostname or asset.asset_id}."
+        ),
+        details={
+            "hostname": asset.hostname,
+            "address": asset.address,
+            "environment": asset.environment,
+            "status": "removed",
+        },
+    )
 
     return {
         "asset_id": asset.asset_id,

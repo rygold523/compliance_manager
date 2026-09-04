@@ -58,3 +58,9 @@ backend/ssh/
 *.key
 id_rsa
 id_ed25519
+
+# Local deployment and recovery backups
+backend-backups/
+frontend-backups/
+deployment-backups/
+*.pre-*

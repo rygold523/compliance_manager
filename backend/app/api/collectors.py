@@ -1,4 +1,5 @@
 import traceback
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 import json
@@ -106,6 +107,9 @@ def run_collectors(payload: CollectorRunRequest, db: Session = Depends(get_db)):
 
                     }
 
+                if output.get("status") == "completed":
+                    asset.last_seen = datetime.now(timezone.utc)
+
                 db.add(CollectorRun(
                     run_id=run_id,
                     asset_id=asset.asset_id,
@@ -177,6 +181,9 @@ def run_collectors(payload: CollectorRunRequest, db: Session = Depends(get_db)):
         except Exception as exc:
             traceback.print_exc()
             output = {"collector": collector_name, "asset_id": getattr(asset, "asset_id", None), "status": "failed", "stderr": str(exc)}
+
+        if output.get("status") == "completed":
+            asset.last_seen = datetime.now(timezone.utc)
 
         db.add(CollectorRun(
             run_id=run_id,

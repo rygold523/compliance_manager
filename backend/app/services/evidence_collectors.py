@@ -167,7 +167,13 @@ COLLECTORS = {'iam_users': {'command': 'sudo /usr/local/lib/compliance/collector
                      'command': 'sudo /usr/local/lib/compliance/collectors/listening_ports.py'},
  'package_inventory': {'control_ids': ['CM-01'],
                        'frameworks': ['pci_dss', 'soc2', 'nist_800_53', 'iso_27002'],
-                       'command': 'sudo /usr/local/lib/compliance/collectors/package_inventory.py'}}
+                       'command': 'sudo /usr/local/lib/compliance/collectors/package_inventory.py'},
+ 'agent_lifecycle': {'control_ids': ['CM-01'],
+                     'frameworks': ['pci_dss', 'soc2', 'nist_800_53', 'iso_27001', 'iso_27002'],
+                     'command': 'sudo /usr/local/lib/compliance/collectors/agent_lifecycle.py'},
+ 'collector_health': {'control_ids': ['CM-01'],
+                      'frameworks': ['pci_dss', 'soc2', 'nist_800_53', 'iso_27001', 'iso_27002'],
+                      'command': 'sudo /usr/local/lib/compliance/collectors/collector_health.py'}}
 
 
 def run_collector(asset, collector_name: str) -> dict:
@@ -192,5 +198,5 @@ def run_collector(asset, collector_name: str) -> dict:
            if result.get("exit_code") == 0
            and "NOT_PRESENT" not in result.get("stdout", "")
            else "failed"
-         ),
+         )
     }

@@ -184,9 +184,41 @@ def account_type(username, uid, home, shell, ssh_user, sftp_only, sudo_access, d
 
     return "service"
 
+def group_inventory():
+    passwd_entries = pwd.getpwall()
+    rows = []
+
+    for group in grp.getgrall():
+        primary_members = [
+            entry.pw_name
+            for entry in passwd_entries
+            if entry.pw_gid == group.gr_gid
+        ]
+
+        members = sorted(
+            set(group.gr_mem)
+            | set(primary_members)
+        )
+
+        rows.append({
+            "group_name": group.gr_name,
+            "gid": group.gr_gid,
+            "members": members,
+        })
+
+    return sorted(
+        rows,
+        key=lambda row: (
+            row["gid"],
+            row["group_name"],
+        ),
+    )
+
+
 def main():
     sudo_text = sudoers_text()
     sshd = sshd_text()
+    group_rows = group_inventory()
 
     users = []
     service_accounts = []
@@ -281,6 +313,7 @@ def main():
         "collected_at": datetime.now(timezone.utc).isoformat(),
         "users": users,
         "service_accounts": service_accounts,
+        "groups": group_rows,
     }, indent=2))
 
 if __name__ == "__main__":
