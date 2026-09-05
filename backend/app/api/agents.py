@@ -86,6 +86,33 @@ def windows_bootstrap_script(asset_id: str, backend_url: str = "http://localhost
 powershell -NoProfile -ExecutionPolicy Bypass -File C:\\ProgramData\\ComplianceAgent\\bootstrap_windows_managed_target.ps1 -BackendUrl '{backend_url}' -AssetId '{asset_id}'
 """
 
+def deployment_username(
+    username: str,
+    hostname: str,
+    os_family: str,
+) -> str:
+    normalized_username = username.strip()
+
+    if os_family.strip().lower() != "windows":
+        return normalized_username
+
+    if (
+        "\\" in normalized_username
+        or "@" in normalized_username
+    ):
+        return normalized_username
+
+    normalized_hostname = hostname.strip()
+
+    if not normalized_hostname:
+        return normalized_username
+
+    return (
+        f"{normalized_hostname}\\"
+        f"{normalized_username}"
+    )
+
+
 @router.post("/deploy")
 def deploy(payload: AgentDeployRequest, db: Session = Depends(get_db)):
     deployment_id = f"AGENT-{uuid4().hex[:12].upper()}"
@@ -104,13 +131,35 @@ def deploy(payload: AgentDeployRequest, db: Session = Depends(get_db)):
 
     result = deploy_agent(
         address=payload.address,
-        username=payload.username,
+        username=deployment_username(
+            payload.username,
+            payload.hostname,
+            payload.os_family,
+        ),
         password=payload.password,
         port=payload.port,
+        os_family=payload.os_family,
+        asset_id=payload.asset_id,
+        backend_url=settings.public_backend_url,
     )
 
     record.status = result["status"]
     record.output = str(result.get("output", ""))
+
+    if result.get("status") != "deployed":
+        db.commit()
+
+        return {
+            "deployment_id": deployment_id,
+            "asset_id": payload.asset_id,
+            "status": result.get("status", "failed"),
+            "message": (
+                "Agent deployment failed. No asset "
+                "record was created."
+            ),
+            "output": result.get("output", []),
+            "initial_collection": None,
+        }
 
     existing = db.query(Asset).filter(Asset.asset_id == payload.asset_id).first()
 
@@ -123,9 +172,17 @@ def deploy(payload: AgentDeployRequest, db: Session = Depends(get_db)):
             role=payload.role,
             asset_roles=normalize_asset_roles(getattr(payload, 'asset_roles', [])),
             data_classification=getattr(payload, 'data_classification', []),
-            os_family="ubuntu",
-            access_method="ssh",
-            ssh_user="compliance-agent",
+            os_family=payload.os_family.lower(),
+            access_method=(
+                "winrm"
+                if payload.os_family.lower() == "windows"
+                else "ssh"
+            ),
+            ssh_user=(
+                ""
+                if payload.os_family.lower() == "windows"
+                else "compliance-agent"
+            ),
             ssh_port=payload.port,
             approval_tier="production" if payload.environment == "production" else "nonproduction",
             compliance_scope=payload.compliance_scope,
@@ -153,6 +210,17 @@ def deploy(payload: AgentDeployRequest, db: Session = Depends(get_db)):
         existing.hostname = payload.hostname
         existing.address = payload.address
         existing.environment = payload.environment
+        existing.os_family = payload.os_family.lower()
+        existing.access_method = (
+            "winrm"
+            if payload.os_family.lower() == "windows"
+            else "ssh"
+        )
+        existing.ssh_user = (
+            ""
+            if payload.os_family.lower() == "windows"
+            else "compliance-agent"
+        )
         existing.ssh_port = payload.port
         existing.compliance_scope = payload.compliance_scope
         existing.asset_roles = normalize_asset_roles(getattr(payload, 'asset_roles', []))
@@ -187,7 +255,10 @@ def deploy(payload: AgentDeployRequest, db: Session = Depends(get_db)):
         )
 
     collection_result = None
-    if deployment_succeeded:
+    if (
+        deployment_succeeded
+        and payload.os_family.lower() != "windows"
+    ):
         collection_result = run_initial_collection(
             db,
             existing,
@@ -197,7 +268,27 @@ def deploy(payload: AgentDeployRequest, db: Session = Depends(get_db)):
         "deployment_id": deployment_id,
         "asset_id": payload.asset_id,
         "status": result["status"],
-        "message": "Agent deployed. Initial evidence collection and finding analysis completed." if collection_result else "Agent deployment did not complete successfully. Initial collection was not run.",
+        "message": (
+            "Windows agent deployed successfully. "
+            "Evidence will be submitted by the "
+            "scheduled Windows collector."
+            if (
+                deployment_succeeded
+                and payload.os_family.lower()
+                == "windows"
+            )
+            else (
+                "Agent deployed. Initial evidence "
+                "collection and finding analysis "
+                "completed."
+                if collection_result
+                else (
+                    "Agent deployment did not complete "
+                    "successfully. Initial collection "
+                    "was not run."
+                )
+            )
+        ),
         "output": result.get("output", []),
         "initial_collection": collection_result,
     }
@@ -219,10 +310,14 @@ def update_asset_classification(asset_id: str, payload: dict, db: Session = Depe
 
 
     # AUTO_INITIAL_BASELINE_COLLECTION
-    try:
-        post_deploy_linux_agent_setup(asset)
-    except Exception as exc:
-        print(f"Initial baseline collection failed for {asset.asset_id}: {exc}")
+    if (asset.os_family or "").lower() != "windows":
+        try:
+            post_deploy_linux_agent_setup(asset)
+        except Exception as exc:
+            print(
+                "Initial baseline collection failed for "
+                f"{asset.asset_id}: {exc}"
+            )
 
     return {
         "status": "updated",
@@ -242,6 +337,12 @@ def update_agent_asset(asset_id: str, payload: AgentDeployRequest, db: Session =
     asset.hostname = payload.hostname
     asset.address = payload.address
     asset.environment = payload.environment
+    asset.os_family = payload.os_family.lower()
+    asset.access_method = (
+        "winrm"
+        if payload.os_family.lower() == "windows"
+        else "ssh"
+    )
     asset.ssh_port = payload.port
     asset.compliance_scope = payload.compliance_scope
     asset.role = payload.role
@@ -265,14 +366,32 @@ def upgrade_agent(asset_id: str, payload: AgentDeployRequest, db: Session = Depe
 
     result = deploy_agent(
         address=payload.address,
-        username=payload.username,
+        username=deployment_username(
+            payload.username,
+            payload.hostname,
+            payload.os_family,
+        ),
         password=payload.password,
         port=payload.port,
+        os_family=payload.os_family,
+        asset_id=payload.asset_id,
+        backend_url=settings.public_backend_url,
     )
 
     asset.hostname = payload.hostname
     asset.address = payload.address
     asset.environment = payload.environment
+    asset.os_family = payload.os_family.lower()
+    asset.access_method = (
+        "winrm"
+        if payload.os_family.lower() == "windows"
+        else "ssh"
+    )
+    asset.ssh_user = (
+        ""
+        if payload.os_family.lower() == "windows"
+        else "compliance-agent"
+    )
     asset.ssh_port = payload.port
     asset.role = payload.role
     asset.compliance_scope = payload.compliance_scope
@@ -318,7 +437,10 @@ def upgrade_agent(asset_id: str, payload: AgentDeployRequest, db: Session = Depe
         )
 
     collection_result = None
-    if upgrade_succeeded:
+    if (
+        upgrade_succeeded
+        and payload.os_family.lower() != "windows"
+    ):
         collection_result = run_initial_collection(
             db,
             asset,
@@ -340,6 +462,46 @@ def remove_agent(asset_id: str, db: Session = Depends(get_db)):
 
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
+
+    if (
+        asset.agent_status or ""
+    ).lower() in {
+        "failed",
+        "not_deployed",
+        "remove_failed",
+    }:
+        removed_asset_id = asset.asset_id
+        removed_hostname = asset.hostname
+        removed_address = asset.address
+        removed_environment = asset.environment
+
+        db.delete(asset)
+        db.commit()
+
+        write_changelog(
+            event_type="failed_agent_record_removed",
+            asset_id=removed_asset_id,
+            summary=(
+                "Failed agent record removed for "
+                f"{removed_hostname or removed_asset_id}."
+            ),
+            details={
+                "hostname": removed_hostname,
+                "address": removed_address,
+                "environment": removed_environment,
+                "previous_status": "failed",
+            },
+        )
+
+        return {
+            "asset_id": removed_asset_id,
+            "status": "removed",
+            "message": (
+                "Failed deployment record removed. "
+                "No remote removal was required."
+            ),
+            "result": None,
+        }
 
     result = run_ssh_command(
         host=asset.address,

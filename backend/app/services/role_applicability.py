@@ -1,5 +1,7 @@
 ROLE_CONTROL_MAP = {
     "application_server": ["AC", "CM", "SI", "VM", "SD", "NS"],
+    "web_automation_server": ["AC", "CM", "SI", "VM", "SD", "NS"],
+    "web_automation_orchestrator_server": ["AC", "CM", "SI", "VM", "SD", "NS"],
     "web_server": ["AC", "CM", "SI", "VM", "NS"],
     "database_server": ["AC", "CM", "SI", "VM", "CP"],
     "monitoring_server": ["AC", "CM", "SI", "VM"],
@@ -94,6 +96,79 @@ ROLE_REMEDIATION_HINTS = {
         "Validate application service status, deployment traceability, and application logs.",
     ],
 }
+
+ROLE_FINDING_TITLE_ALLOW[
+    "web_automation_server"
+] = [
+    "authentication",
+    "time synchronization",
+    "available package updates",
+    "held packages",
+    "open ports",
+    "listening services",
+    "application",
+    "service",
+    "browser",
+    "playwright",
+    "automation",
+    "remote desktop",
+    "rdp",
+    "ssh",
+]
+
+ROLE_FINDING_TITLE_ALLOW[
+    "web_automation_orchestrator_server"
+] = [
+    "authentication",
+    "time synchronization",
+    "available package updates",
+    "held packages",
+    "open ports",
+    "listening services",
+    "application",
+    "service",
+    "browser",
+    "playwright",
+    "automation",
+    "orchestrator",
+    "jenkins",
+    "pipeline",
+    "docker",
+    "credential",
+    "secret",
+    "ssh",
+]
+
+ROLE_REMEDIATION_HINTS[
+    "web_automation_server"
+] = [
+    (
+        "Validate browser automation runtime, "
+        "worker access, execution isolation, "
+        "service health, and automation logs."
+    ),
+    (
+        "Review RDP, SSH, service-account, and "
+        "interactive-session access used by "
+        "automation workers."
+    ),
+]
+
+ROLE_REMEDIATION_HINTS[
+    "web_automation_orchestrator_server"
+] = [
+    (
+        "Validate automation orchestration, "
+        "pipeline audit logging, worker routing, "
+        "credential handling, and job isolation."
+    ),
+    (
+        "Review administrative access, secrets, "
+        "build artifacts, and remote execution "
+        "permissions used by the orchestrator."
+    ),
+]
+
 
 BASELINE_EXPECTED_COLLECTORS = [
     "trend_micro_ds_agent",

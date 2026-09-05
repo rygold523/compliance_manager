@@ -2,6 +2,10 @@ from collections import defaultdict
 from pathlib import Path
 import json
 
+from sqlalchemy import func
+
+from app.core.database import SessionLocal
+from app.models import Evidence, Finding
 from app.services.control_catalog import list_controls
 from app.services.environment_validation import environment_validations
 
@@ -99,21 +103,115 @@ def row_to_dict(row):
 
 
 def get_db_rows(model_name):
-    try:
-        from app.core.database import SessionLocal
-        from app.models import models
+    db = SessionLocal()
 
-        model = getattr(models, model_name, None)
-        if model is None:
+    try:
+        if model_name == "Evidence":
+            logical_collector = func.coalesce(
+                Evidence.collector,
+                Evidence.evidence_type,
+                Evidence.source,
+                "unknown",
+            )
+
+            ranked = (
+                db.query(
+                    Evidence.id.label(
+                        "evidence_row_id"
+                    ),
+                    func.row_number()
+                    .over(
+                        partition_by=(
+                            func.coalesce(
+                                Evidence.asset_id,
+                                "unknown",
+                            ),
+                            logical_collector,
+                        ),
+                        order_by=(
+                            Evidence.created_at.desc(),
+                            Evidence.id.desc(),
+                        ),
+                    )
+                    .label("row_rank"),
+                )
+                .subquery()
+            )
+
+            rows = (
+                db.query(Evidence)
+                .join(
+                    ranked,
+                    Evidence.id
+                    == ranked.c.evidence_row_id,
+                )
+                .filter(ranked.c.row_rank == 1)
+                .all()
+            )
+
+        elif model_name == "Finding":
+            logical_title = func.coalesce(
+                Finding.title,
+                Finding.finding_type,
+                Finding.finding_id,
+            )
+
+            ranked = (
+                db.query(
+                    Finding.id.label(
+                        "finding_row_id"
+                    ),
+                    func.row_number()
+                    .over(
+                        partition_by=(
+                            func.coalesce(
+                                Finding.asset_id,
+                                "unknown",
+                            ),
+                            func.coalesce(
+                                Finding.control_id,
+                                "unknown",
+                            ),
+                            logical_title,
+                        ),
+                        order_by=(
+                            Finding.created_at.desc(),
+                            Finding.id.desc(),
+                        ),
+                    )
+                    .label("row_rank"),
+                )
+                .subquery()
+            )
+
+            rows = (
+                db.query(Finding)
+                .join(
+                    ranked,
+                    Finding.id
+                    == ranked.c.finding_row_id,
+                )
+                .filter(ranked.c.row_rank == 1)
+                .all()
+            )
+
+        else:
             return []
 
-        db = SessionLocal()
-        try:
-            return [row_to_dict(row) for row in db.query(model).all()]
-        finally:
-            db.close()
-    except Exception:
+        return [
+            row_to_dict(row)
+            for row in rows
+        ]
+
+    except Exception as exc:
+        print(
+            "Audit-readiness database load "
+            f"failed for {model_name}: {exc}"
+        )
         return []
+
+    finally:
+        db.close()
 
 
 def normalize_bool(value):
@@ -332,24 +430,72 @@ def summarize(items):
     }
 
 
-def audit_readiness_for_framework(framework):
-    policies = index_artifacts_by_control(load_json(POLICIES_DB), "policy_id")
-    documents = index_artifacts_by_control(load_json(DOCUMENTS_DB), "document_id")
-    evidence_rows = get_db_rows("Evidence")
-    evidence = index_evidence_by_control(evidence_rows)
-    findings = index_findings_by_control(get_db_rows("Finding"))
+def prepare_audit_readiness_data():
+    policies = index_artifacts_by_control(
+        load_json(POLICIES_DB),
+        "policy_id",
+    )
+    documents = index_artifacts_by_control(
+        load_json(DOCUMENTS_DB),
+        "document_id",
+    )
 
-    env_validations = environment_validations(evidence_rows)
+    evidence_rows = get_db_rows(
+        "Evidence"
+    )
+    finding_rows = get_db_rows(
+        "Finding"
+    )
 
-    for control_id, validation in env_validations.items():
-        evidence[control_id].append({
-            "evidence_id": "ENVIRONMENT-VALIDATION",
-            "asset_id": "environment",
-            "collector": validation.get("supporting_service"),
-            "validated": True,
-            "created_at": None,
-            "validation_reason": validation.get("reason"),
-        })
+    evidence = index_evidence_by_control(
+        evidence_rows
+    )
+    findings = index_findings_by_control(
+        finding_rows
+    )
+
+    env_validations = environment_validations(
+        evidence_rows
+    )
+
+    for (
+        control_id,
+        validation,
+    ) in env_validations.items():
+        evidence[control_id].append(
+            {
+                "evidence_id": (
+                    "ENVIRONMENT-VALIDATION"
+                ),
+                "asset_id": "environment",
+                "collector": validation.get(
+                    "supporting_service"
+                ),
+                "validated": True,
+                "created_at": None,
+                "validation_reason": (
+                    validation.get("reason")
+                ),
+            }
+        )
+
+    return {
+        "policies": policies,
+        "documents": documents,
+        "evidence": evidence,
+        "findings": findings,
+    }
+
+
+def audit_readiness_for_framework(
+    framework,
+    prepared_data=None,
+):
+    prepared = (
+        prepared_data
+        if prepared_data is not None
+        else prepare_audit_readiness_data()
+    )
 
     controls = framework_controls(framework)
 
@@ -357,20 +503,29 @@ def audit_readiness_for_framework(framework):
         classify_control(
             framework=framework,
             control=control,
-            policies=policies,
-            documents=documents,
-            evidence=evidence,
-            findings=findings,
+            policies=prepared["policies"],
+            documents=prepared["documents"],
+            evidence=prepared["evidence"],
+            findings=prepared["findings"],
         )
         for control in controls
     ]
 
-    risk_order = {"high": 0, "moderate": 1, "low": 2}
+    risk_order = {
+        "high": 0,
+        "moderate": 1,
+        "low": 2,
+    }
 
-    items.sort(key=lambda item: (
-        risk_order.get(item["risk"], 9),
-        item["control_id"] or "",
-    ))
+    items.sort(
+        key=lambda item: (
+            risk_order.get(
+                item["risk"],
+                9,
+            ),
+            item["control_id"] or "",
+        )
+    )
 
     return {
         "framework": framework,
@@ -380,11 +535,22 @@ def audit_readiness_for_framework(framework):
 
 
 def audit_readiness_all():
-    frameworks = ["pci_dss", "soc2", "nist_800_53", "iso_27001", "iso_27002"]
+    frameworks = [
+        "pci_dss",
+        "soc2",
+        "nist_800_53",
+        "iso_27001",
+        "iso_27002",
+    ]
+
+    prepared = prepare_audit_readiness_data()
 
     return {
         "frameworks": [
-            audit_readiness_for_framework(framework)
+            audit_readiness_for_framework(
+                framework,
+                prepared_data=prepared,
+            )
             for framework in frameworks
         ]
     }

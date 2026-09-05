@@ -25,6 +25,7 @@ class AgentDeployRequest(BaseModel):
     username: str
     password: str
     port: int = 22
+    os_family: str = "ubuntu"
     environment: str = "test"
     role: list[str] = ["ubuntu", "managed_target"]
     asset_roles: list[str] = []

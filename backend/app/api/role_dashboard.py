@@ -174,6 +174,27 @@ def row_dict(row):
     return {column.name: getattr(row, column.name) for column in row.__table__.columns}
 
 
+ROLE_FOCUS[
+    "web_automation_server"
+] = [
+    "Browser automation runtime health",
+    "Worker execution isolation",
+    "RDP and SSH access review",
+    "Automation service accounts",
+    "Automation execution logging",
+]
+
+ROLE_FOCUS[
+    "web_automation_orchestrator_server"
+] = [
+    "Automation orchestration health",
+    "Worker routing and job isolation",
+    "Pipeline and execution audit logging",
+    "Credential and secret handling",
+    "Remote execution access control",
+]
+
+
 def get_value(row, *keys, default=None):
     for key in keys:
         value = row.get(key)

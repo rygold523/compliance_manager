@@ -1,7 +1,8 @@
-from pathlib import Path
-from uuid import uuid4
 from datetime import datetime, timezone
 import json
+from pathlib import Path
+from typing import Any
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -9,13 +10,46 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.models import Asset, Evidence, CollectorRun
+from app.models import Asset, CollectorRun, Evidence
 
 
-router = APIRouter(prefix="/api/windows-agent", tags=["windows-agent"])
+router = APIRouter(
+    prefix="/api/windows-agent",
+    tags=["windows-agent"],
+)
 
 
 COLLECTOR_CONTROL_MAP = {
+    "agent_lifecycle": {
+        "control_id": "CM-08",
+        "frameworks": {
+            "pci_dss": ["2.4"],
+            "soc2": ["CC7.1"],
+            "nist_800_53": ["CM-8"],
+            "iso_27001": ["A.5.9"],
+            "iso_27002": ["5.9"],
+        },
+    },
+    "collector_health": {
+        "control_id": "SI-07",
+        "frameworks": {
+            "pci_dss": ["11.5.2"],
+            "soc2": ["CC7.1"],
+            "nist_800_53": ["SI-7"],
+            "iso_27001": ["A.8.9"],
+            "iso_27002": ["8.9"],
+        },
+    },
+    "iam_users": {
+        "control_id": "AC-02",
+        "frameworks": {
+            "pci_dss": ["7.2", "8.2"],
+            "soc2": ["CC6.1", "CC6.2"],
+            "nist_800_53": ["AC-2"],
+            "iso_27001": ["A.5.15", "A.5.16"],
+            "iso_27002": ["5.15", "5.16"],
+        },
+    },
     "duo_mfa_windows": {
         "control_id": "AC-01",
         "frameworks": {
@@ -62,22 +96,55 @@ COLLECTOR_CONTROL_MAP = {
 class WindowsCollectorResult(BaseModel):
     status: str = "unknown"
     validated: bool = False
-    raw: object | None = None
+    raw: Any | None = None
 
 
 class WindowsAgentPayload(BaseModel):
     asset_id: str
     os_family: str = "windows"
     collected_at: str | None = None
-    collectors: dict[str, WindowsCollectorResult] = Field(default_factory=dict)
+    collectors: dict[str, WindowsCollectorResult] = Field(
+        default_factory=dict
+    )
+
+
+def build_evidence_output(
+    payload: WindowsAgentPayload,
+    collector_name: str,
+    result: WindowsCollectorResult,
+) -> dict[str, Any]:
+    output: dict[str, Any] = {
+        "collector": collector_name,
+        "asset_id": payload.asset_id,
+        "os_family": payload.os_family,
+        "collected_at": payload.collected_at,
+        "status": result.status,
+        "validated": result.validated,
+        "raw": result.raw,
+    }
+
+    if isinstance(result.raw, dict):
+        output.update(result.raw)
+
+    return output
 
 
 @router.post("/ingest")
-def ingest_windows_agent(payload: WindowsAgentPayload, db: Session = Depends(get_db)):
-    asset = db.query(Asset).filter(Asset.asset_id == payload.asset_id).first()
+def ingest_windows_agent(
+    payload: WindowsAgentPayload,
+    db: Session = Depends(get_db),
+):
+    asset = (
+        db.query(Asset)
+        .filter(Asset.asset_id == payload.asset_id)
+        .first()
+    )
 
     if not asset:
-        raise HTTPException(status_code=404, detail="Asset not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Asset not found",
+        )
 
     asset.os_family = "windows"
     asset.agent_status = "deployed"
@@ -85,60 +152,97 @@ def ingest_windows_agent(payload: WindowsAgentPayload, db: Session = Depends(get
 
     results = []
 
-    for collector_name, result in payload.collectors.items():
-        mapping = COLLECTOR_CONTROL_MAP.get(collector_name)
+    try:
+        for collector_name, result in payload.collectors.items():
+            mapping = COLLECTOR_CONTROL_MAP.get(collector_name)
 
-        if not mapping:
-            continue
+            if not mapping:
+                continue
 
-        run_id = f"COL-{uuid4().hex[:12].upper()}"
-        evidence_id = f"EV-{uuid4().hex[:12].upper()}"
+            run_id = f"COL-{uuid4().hex[:12].upper()}"
+            evidence_id = f"EV-{uuid4().hex[:12].upper()}"
 
-        output = {
-            "collector": collector_name,
-            "asset_id": payload.asset_id,
-            "os_family": payload.os_family,
-            "collected_at": payload.collected_at,
-            "status": result.status,
-            "validated": result.validated,
-            "raw": result.raw,
-        }
+            output = build_evidence_output(
+                payload,
+                collector_name,
+                result,
+            )
 
-        db.add(CollectorRun(
-            run_id=run_id,
-            asset_id=payload.asset_id,
-            collector=collector_name,
-            status="completed" if result.validated else "failed",
-            output=output,
-        ))
+            run_status = (
+                "completed"
+                if result.status == "completed"
+                or result.validated
+                else "failed"
+            )
 
-        evidence_dir = Path(settings.evidence_root) / payload.asset_id / collector_name
-        evidence_dir.mkdir(parents=True, exist_ok=True)
-        evidence_path = evidence_dir / f"{evidence_id}.json"
-        evidence_path.write_text(json.dumps(output, indent=2, default=str))
+            db.add(
+                CollectorRun(
+                    run_id=run_id,
+                    asset_id=payload.asset_id,
+                    collector=collector_name,
+                    status=run_status,
+                    output=output,
+                )
+            )
 
-        db.add(Evidence(
-            evidence_id=evidence_id,
-            asset_id=payload.asset_id,
-            control_id=mapping["control_id"],
-            filename=evidence_path.name,
-            file_path=str(evidence_path),
-            source="windows_agent",
-            description=f"Windows agent collector output for {collector_name}",
-            collector=collector_name,
-            evidence_type=collector_name,
-            frameworks=mapping["frameworks"],
-            validated=bool(result.validated),
-        ))
+            evidence_dir = (
+                Path(settings.evidence_root)
+                / payload.asset_id
+                / collector_name
+            )
+            evidence_dir.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
 
-        results.append({
-            "collector": collector_name,
-            "run_id": run_id,
-            "evidence_id": evidence_id,
-            "validated": bool(result.validated),
-        })
+            evidence_path = (
+                evidence_dir
+                / f"{evidence_id}.json"
+            )
+            evidence_path.write_text(
+                json.dumps(
+                    output,
+                    indent=2,
+                    default=str,
+                ),
+                encoding="utf-8",
+            )
 
-    db.commit()
+            db.add(
+                Evidence(
+                    evidence_id=evidence_id,
+                    asset_id=payload.asset_id,
+                    control_id=mapping["control_id"],
+                    filename=evidence_path.name,
+                    file_path=str(evidence_path),
+                    source="windows_agent",
+                    description=(
+                        "Windows agent collector output "
+                        f"for {collector_name}"
+                    ),
+                    collector=collector_name,
+                    evidence_type=collector_name,
+                    frameworks=mapping["frameworks"],
+                    validated=bool(result.validated),
+                )
+            )
+
+            results.append(
+                {
+                    "collector": collector_name,
+                    "run_id": run_id,
+                    "evidence_id": evidence_id,
+                    "validated": bool(
+                        result.validated
+                    ),
+                }
+            )
+
+        db.commit()
+
+    except Exception:
+        db.rollback()
+        raise
 
     return {
         "asset_id": payload.asset_id,

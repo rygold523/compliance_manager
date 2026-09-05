@@ -1,114 +1,587 @@
 param(
     [string]$BackendUrl = "http://localhost:8000",
     [string]$AssetId = $env:COMPUTERNAME,
-    [string]$InstallDir = "C:\ProgramData\ComplianceAgent"
+    [string]$InstallDir = "C:\ProgramData\ComplianceAgent",
+    [string]$AgentVersion = "2026.09.05.1"
 )
 
 $ErrorActionPreference = "Stop"
 
-New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
+New-Item `
+    -ItemType Directory `
+    -Force `
+    -Path $InstallDir |
+    Out-Null
 
-$Config = @{
+$Config = [ordered]@{
     asset_id = $AssetId
-    backend_url = $BackendUrl
+    backend_url = $BackendUrl.TrimEnd("/")
     os_family = "windows"
-    installed_at = (Get-Date).ToUniversalTime().ToString("o")
+    agent_version = $AgentVersion
+    expected_agent_version = $AgentVersion
+    collector_manifest_version = $AgentVersion
+    installed_at = (
+        Get-Date
+    ).ToUniversalTime().ToString("o")
 }
 
-$Config | ConvertTo-Json -Depth 5 | Out-File -FilePath "$InstallDir\agent-config.json" -Encoding UTF8
+$Config |
+    ConvertTo-Json -Depth 10 |
+    Out-File `
+        -FilePath "$InstallDir\agent-config.json" `
+        -Encoding UTF8
 
 $CollectorScript = @'
-$ConfigPath = "C:\ProgramData\ComplianceAgent\agent-config.json"
-$Config = Get-Content $ConfigPath | ConvertFrom-Json
+$ErrorActionPreference = "Stop"
+
+$InstallDir = "C:\ProgramData\ComplianceAgent"
+$ConfigPath = Join-Path $InstallDir "agent-config.json"
+$ManifestPath = Join-Path $InstallDir "collector-manifest.json"
+$CollectorPath = Join-Path $InstallDir "collect.ps1"
+$OutFile = Join-Path $InstallDir "latest-collection.json"
+$ResponseFile = Join-Path $InstallDir "last-submit-response.json"
+$ErrorFile = Join-Path $InstallDir "last-submit-error.log"
+
+$Config = Get-Content `
+    -LiteralPath $ConfigPath `
+    -Raw |
+    ConvertFrom-Json
 
 function Test-ServicePresence {
-    param([string[]]$Patterns)
+    param(
+        [Parameter(Mandatory)]
+        [string[]]$Patterns
+    )
 
-    $services = Get-Service -ErrorAction SilentlyContinue | Where-Object {
-        $name = $_.Name
-        $display = $_.DisplayName
-        $Patterns | Where-Object { $name -match $_ -or $display -match $_ }
+    $Services = @(
+        Get-Service -ErrorAction SilentlyContinue |
+            Where-Object {
+                $ServiceName = $_.Name
+                $DisplayName = $_.DisplayName
+
+                @(
+                    $Patterns |
+                        Where-Object {
+                            $ServiceName -match $_ -or
+                            $DisplayName -match $_
+                        }
+                ).Count -gt 0
+            } |
+            Select-Object `
+                Name,
+                DisplayName,
+                Status,
+                StartType
+    )
+
+    return [ordered]@{
+        present = [bool]($Services.Count -gt 0)
+        services = $Services
     }
+}
 
-    if ($services) {
-        return @{
-            present = $true
-            services = $services | Select-Object Name, DisplayName, Status, StartType
+function Get-SafeLocalGroupMembers {
+    param(
+        [Parameter(Mandatory)]
+        [string]$GroupName
+    )
+
+    try {
+        return @(
+            Get-LocalGroupMember `
+                -Group $GroupName `
+                -ErrorAction Stop |
+                Select-Object `
+                    Name,
+                    ObjectClass,
+                    PrincipalSource,
+                    SID
+        )
+    }
+    catch {
+        return @()
+    }
+}
+
+function Get-LocalIdentityInventory {
+    $LocalUsers = @(
+        Get-LocalUser -ErrorAction SilentlyContinue
+    )
+
+    $LocalGroups = @(
+        Get-LocalGroup -ErrorAction SilentlyContinue
+    )
+
+    $GroupMembership = @{}
+    $GroupDetails = @()
+
+    foreach ($Group in $LocalGroups) {
+        $Members = @(
+            Get-SafeLocalGroupMembers `
+                -GroupName $Group.Name
+        )
+
+        $GroupDetails += [ordered]@{
+            name = $Group.Name
+            description = $Group.Description
+            sid = [string]$Group.SID
+            members = @(
+                $Members |
+                    ForEach-Object {
+                        [ordered]@{
+                            name = $_.Name
+                            object_class = [string]$_.ObjectClass
+                            principal_source = [string]$_.PrincipalSource
+                            sid = [string]$_.SID
+                        }
+                    }
+            )
+        }
+
+        foreach ($Member in $Members) {
+            $MemberName = [string]$Member.Name
+            $LeafName = (
+                $MemberName -split "\\"
+            )[-1]
+
+            foreach ($IdentityName in @(
+                $MemberName.ToLowerInvariant(),
+                $LeafName.ToLowerInvariant()
+            )) {
+                if (
+                    -not $GroupMembership.ContainsKey(
+                        $IdentityName
+                    )
+                ) {
+                    $GroupMembership[$IdentityName] = @()
+                }
+
+                if (
+                    $GroupMembership[$IdentityName] `
+                        -notcontains $Group.Name
+                ) {
+                    $GroupMembership[$IdentityName] += $Group.Name
+                }
+            }
         }
     }
 
-    return @{
-        present = $false
-        services = @()
+    $RdpEnabled = $false
+
+    try {
+        $TerminalServerSettings = Get-ItemProperty `
+            -LiteralPath (
+                "HKLM:\SYSTEM\CurrentControlSet\" +
+                "Control\Terminal Server"
+            ) `
+            -Name "fDenyTSConnections" `
+            -ErrorAction Stop
+
+        $RdpEnabled = (
+            $TerminalServerSettings.fDenyTSConnections -eq 0
+        )
+    }
+    catch {
+        $RdpEnabled = $false
+    }
+
+    $RdpService = Get-Service `
+        -Name "TermService" `
+        -ErrorAction SilentlyContinue
+
+    $RdpOperational = (
+        $RdpEnabled -and
+        $null -ne $RdpService -and
+        $RdpService.Status -eq "Running"
+    )
+
+    $SshService = Get-Service `
+        -Name "sshd" `
+        -ErrorAction SilentlyContinue
+
+    $SshOperational = (
+        $null -ne $SshService -and
+        $SshService.Status -eq "Running"
+    )
+
+    $WinRmService = Get-Service `
+        -Name "WinRM" `
+        -ErrorAction SilentlyContinue
+
+    $WinRmOperational = (
+        $null -ne $WinRmService -and
+        $WinRmService.Status -eq "Running"
+    )
+
+    $Users = @()
+
+    foreach ($User in $LocalUsers) {
+        $Username = [string]$User.Name
+        $LookupName = $Username.ToLowerInvariant()
+        $Groups = @(
+            $GroupMembership[$LookupName] |
+                Sort-Object -Unique
+        )
+
+        $IsAdministrator = (
+            $Groups -contains "Administrators"
+        )
+
+        $CanUseRdp = (
+            $RdpOperational -and
+            (
+                $IsAdministrator -or
+                $Groups -contains "Remote Desktop Users"
+            )
+        )
+
+        $Access = @()
+
+        if ($CanUseRdp) {
+            $Access += "RDP"
+        }
+
+        if ($SshOperational -and $User.Enabled) {
+            $Access += "SSH"
+        }
+
+        if ($WinRmOperational -and $IsAdministrator) {
+            $Access += "WinRM"
+        }
+
+        $Users += [ordered]@{
+            username = $Username
+            uid = [string]$User.SID
+            sid = [string]$User.SID
+            enabled = [bool]$User.Enabled
+            description = $User.Description
+            last_logon = if ($User.LastLogon) {
+                $User.LastLogon.ToUniversalTime().ToString("o")
+            }
+            else {
+                $null
+            }
+            password_required = [bool]$User.PasswordRequired
+            password_expires = if ($User.PasswordExpires) {
+                $User.PasswordExpires.ToUniversalTime().ToString("o")
+            }
+            else {
+                $null
+            }
+            password_last_set = if ($User.PasswordLastSet) {
+                $User.PasswordLastSet.ToUniversalTime().ToString("o")
+            }
+            else {
+                $null
+            }
+            groups = $Groups
+            access = @(
+                $Access |
+                    Sort-Object -Unique
+            )
+            account_type = "local"
+        }
+    }
+
+    return [ordered]@{
+        hostname = $env:COMPUTERNAME
+        collected_at = (
+            Get-Date
+        ).ToUniversalTime().ToString("o")
+        users = $Users
+        service_accounts = @()
+        groups = $GroupDetails
+        access_services = [ordered]@{
+            rdp = [ordered]@{
+                enabled = [bool]$RdpEnabled
+                service_running = [bool](
+                    $null -ne $RdpService -and
+                    $RdpService.Status -eq "Running"
+                )
+                operational = [bool]$RdpOperational
+            }
+            ssh = [ordered]@{
+                installed = [bool]($null -ne $SshService)
+                service_running = [bool]$SshOperational
+                operational = [bool]$SshOperational
+            }
+            winrm = [ordered]@{
+                installed = [bool]($null -ne $WinRmService)
+                service_running = [bool]$WinRmOperational
+                operational = [bool]$WinRmOperational
+            }
+        }
     }
 }
 
+$Manifest = $null
+
+if (Test-Path -LiteralPath $ManifestPath) {
+    try {
+        $Manifest = Get-Content `
+            -LiteralPath $ManifestPath `
+            -Raw |
+            ConvertFrom-Json
+    }
+    catch {
+        $Manifest = $null
+    }
+}
+
+$CollectorHash = (
+    Get-FileHash `
+        -LiteralPath $CollectorPath `
+        -Algorithm SHA256
+).Hash.ToLowerInvariant()
+
+$ManifestPresent = $null -ne $Manifest
+$ExpectedHash = if ($ManifestPresent) {
+    [string]$Manifest.collector_sha256
+}
+else {
+    ""
+}
+
+$DriftDetected = (
+    -not $ManifestPresent -or
+    [string]::IsNullOrWhiteSpace($ExpectedHash) -or
+    $CollectorHash -ne $ExpectedHash.ToLowerInvariant()
+)
+
+$Lifecycle = [ordered]@{
+    hostname = $env:COMPUTERNAME
+    collected_at = (
+        Get-Date
+    ).ToUniversalTime().ToString("o")
+    agent_version = [string]$Config.agent_version
+    expected_agent_version = [string](
+        $Config.expected_agent_version
+    )
+    agent_current = (
+        [string]$Config.agent_version -eq
+        [string]$Config.expected_agent_version
+    )
+    collector_manifest_version = if ($ManifestPresent) {
+        [string]$Manifest.manifest_version
+    }
+    else {
+        $null
+    }
+    manifest_present = [bool]$ManifestPresent
+    collector_sha256 = $CollectorHash
+}
+
+$CollectorHealth = [ordered]@{
+    hostname = $env:COMPUTERNAME
+    collected_at = (
+        Get-Date
+    ).ToUniversalTime().ToString("o")
+    manifest_present = [bool]$ManifestPresent
+    expected_collector_sha256 = $ExpectedHash
+    actual_collector_sha256 = $CollectorHash
+    drift_detected = [bool]$DriftDetected
+}
+
+$Duo = Test-ServicePresence `
+    -Patterns @("Duo")
+
+$Automox = Test-ServicePresence `
+    -Patterns @("amagent", "Automox")
+
+$Trend = Test-ServicePresence `
+    -Patterns @(
+        "ds_agent",
+        "Trend",
+        "Deep Security"
+    )
+
+$IdentityInventory = Get-LocalIdentityInventory
+
 $Results = [ordered]@{
-    asset_id = $Config.asset_id
+    asset_id = [string]$Config.asset_id
     os_family = "windows"
-    collected_at = (Get-Date).ToUniversalTime().ToString("o")
-    collectors = [ordered]@{}
+    collected_at = (
+        Get-Date
+    ).ToUniversalTime().ToString("o")
+    collectors = [ordered]@{
+        agent_lifecycle = [ordered]@{
+            status = "completed"
+            validated = [bool](
+                $Lifecycle.agent_current -and
+                $Lifecycle.manifest_present
+            )
+            raw = $Lifecycle
+        }
+        collector_health = [ordered]@{
+            status = if ($DriftDetected) {
+                "drift_detected"
+            }
+            else {
+                "completed"
+            }
+            validated = [bool](-not $DriftDetected)
+            raw = $CollectorHealth
+        }
+        iam_users = [ordered]@{
+            status = "completed"
+            validated = $true
+            raw = $IdentityInventory
+        }
+        duo_mfa_windows = [ordered]@{
+            status = if ($Duo.present) {
+                "present"
+            }
+            else {
+                "missing"
+            }
+            validated = [bool]$Duo.present
+            raw = $Duo
+        }
+        automox_windows_agent = [ordered]@{
+            status = if ($Automox.present) {
+                "present"
+            }
+            else {
+                "missing"
+            }
+            validated = [bool]$Automox.present
+            raw = $Automox
+        }
+        trend_micro_windows_agent = [ordered]@{
+            status = if ($Trend.present) {
+                "present"
+            }
+            else {
+                "missing"
+            }
+            validated = [bool]$Trend.present
+            raw = $Trend
+        }
+        open_ports_windows = [ordered]@{
+            status = "completed"
+            validated = $true
+            raw = @(
+                Get-NetTCPConnection `
+                    -State Listen `
+                    -ErrorAction SilentlyContinue |
+                    Select-Object `
+                        LocalAddress,
+                        LocalPort,
+                        OwningProcess
+            )
+        }
+    }
 }
 
-$duo = Test-ServicePresence -Patterns @("Duo")
-$automox = Test-ServicePresence -Patterns @("amagent", "Automox")
-$trend = Test-ServicePresence -Patterns @("ds_agent", "Trend", "Deep Security")
+$Json = $Results |
+    ConvertTo-Json -Depth 20
 
-$Results.collectors.duo_mfa_windows = @{
-    status = if ($duo.present) { "present" } else { "missing" }
-    validated = [bool]$duo.present
-    raw = $duo
-}
-
-$Results.collectors.automox_windows_agent = @{
-    status = if ($automox.present) { "present" } else { "missing" }
-    validated = [bool]$automox.present
-    raw = $automox
-}
-
-$Results.collectors.trend_micro_windows_agent = @{
-    status = if ($trend.present) { "present" } else { "missing" }
-    validated = [bool]$trend.present
-    raw = $trend
-}
-
-$Results.collectors.open_ports_windows = @{
-    status = "completed"
-    validated = $true
-    raw = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue |
-        Select-Object LocalAddress, LocalPort, OwningProcess
-}
-
-$OutFile = "C:\ProgramData\ComplianceAgent\latest-collection.json"
-$Json = $Results | ConvertTo-Json -Depth 10
-$Json | Out-File -FilePath $OutFile -Encoding UTF8
+$Json |
+    Out-File `
+        -LiteralPath $OutFile `
+        -Encoding UTF8
 
 try {
-    Invoke-RestMethod `
-        -Uri "$($Config.backend_url)/api/windows-agent/ingest" `
+    $Response = Invoke-RestMethod `
+        -Uri (
+            "$($Config.backend_url)" +
+            "/api/windows-agent/ingest"
+        ) `
         -Method Post `
         -ContentType "application/json" `
         -Body $Json `
-        -TimeoutSec 30 | Out-File -FilePath "C:\ProgramData\ComplianceAgent\last-submit-response.json" -Encoding UTF8
-} catch {
-    $_ | Out-String | Out-File -FilePath "C:\ProgramData\ComplianceAgent\last-submit-error.log" -Encoding UTF8
+        -TimeoutSec 60
+
+    $Response |
+        ConvertTo-Json -Depth 10 |
+        Out-File `
+            -LiteralPath $ResponseFile `
+            -Encoding UTF8
+
+    Remove-Item `
+        -LiteralPath $ErrorFile `
+        -Force `
+        -ErrorAction SilentlyContinue
+}
+catch {
+    $_ |
+        Out-String |
+        Out-File `
+            -LiteralPath $ErrorFile `
+            -Encoding UTF8
+
+    throw
 }
 
 Write-Output "Collection written to $OutFile"
 '@
 
-$CollectorScript | Out-File -FilePath "$InstallDir\collect.ps1" -Encoding UTF8
+$CollectorPath = Join-Path $InstallDir "collect.ps1"
 
-$Action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$InstallDir\collect.ps1`""
-$Trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(5) -RepetitionInterval (New-TimeSpan -Minutes 15)
-$Principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
+$CollectorScript |
+    Out-File `
+        -LiteralPath $CollectorPath `
+        -Encoding UTF8
+
+$CollectorHash = (
+    Get-FileHash `
+        -LiteralPath $CollectorPath `
+        -Algorithm SHA256
+).Hash.ToLowerInvariant()
+
+$Manifest = [ordered]@{
+    manifest_version = $AgentVersion
+    agent_version = $AgentVersion
+    collector_sha256 = $CollectorHash
+    collectors = @(
+        "agent_lifecycle",
+        "collector_health",
+        "iam_users",
+        "duo_mfa_windows",
+        "automox_windows_agent",
+        "trend_micro_windows_agent",
+        "open_ports_windows"
+    )
+    generated_at = (
+        Get-Date
+    ).ToUniversalTime().ToString("o")
+}
+
+$Manifest |
+    ConvertTo-Json -Depth 10 |
+    Out-File `
+        -LiteralPath (
+            Join-Path $InstallDir "collector-manifest.json"
+        ) `
+        -Encoding UTF8
+
+$Action = New-ScheduledTaskAction `
+    -Execute "powershell.exe" `
+    -Argument (
+        "-NoProfile -ExecutionPolicy Bypass " +
+        "-File `"$CollectorPath`""
+    )
+
+$Trigger = New-ScheduledTaskTrigger `
+    -Once `
+    -At (Get-Date).AddMinutes(5) `
+    -RepetitionInterval (
+        New-TimeSpan -Minutes 15
+    )
+
+$Principal = New-ScheduledTaskPrincipal `
+    -UserId "SYSTEM" `
+    -RunLevel Highest
 
 Register-ScheduledTask `
     -TaskName "ComplianceAgentCollector" `
     -Action $Action `
     -Trigger $Trigger `
     -Principal $Principal `
-    -Force | Out-Null
+    -Force |
+    Out-Null
+
+& $CollectorPath
 
 Write-Output "Windows Compliance Agent installed."
 Write-Output "InstallDir: $InstallDir"

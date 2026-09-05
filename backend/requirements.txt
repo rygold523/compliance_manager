@@ -13,3 +13,4 @@ requests==2.32.3
 reportlab==4.2.5
 PyYAML
 playwright
+pywinrm==0.5.0

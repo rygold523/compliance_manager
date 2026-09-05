@@ -319,6 +319,8 @@ function saveDashboardCache(data) {
 
 const ASSET_ROLE_OPTIONS = [
   "application_server",
+  "web_automation_server",
+  "web_automation_orchestrator_server",
   "web_server",
   "database_server",
   "monitoring_server",

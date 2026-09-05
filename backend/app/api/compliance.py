@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -200,6 +201,178 @@ def _current_findings_only(findings: list, current_evidence_ids: set) -> list:
     return current
 
 
+def _query_latest_evidence(
+    db: Session,
+    asset_ids: set | None,
+) -> list:
+    logical_collector = func.coalesce(
+        Evidence.collector,
+        Evidence.evidence_type,
+        Evidence.source,
+        "unknown",
+    )
+
+    ranked = (
+        db.query(
+            Evidence.id.label("evidence_row_id"),
+            func.row_number()
+            .over(
+                partition_by=(
+                    func.coalesce(
+                        Evidence.asset_id,
+                        "unknown",
+                    ),
+                    logical_collector,
+                    func.coalesce(
+                        Evidence.control_id,
+                        "unknown",
+                    ),
+                ),
+                order_by=(
+                    Evidence.created_at.desc(),
+                    Evidence.id.desc(),
+                ),
+            )
+            .label("row_rank"),
+        )
+    )
+
+    if asset_ids is not None:
+        if not asset_ids:
+            return []
+
+        ranked = ranked.filter(
+            Evidence.asset_id.in_(asset_ids)
+        )
+
+    ranked = ranked.subquery()
+
+    return (
+        db.query(Evidence)
+        .join(
+            ranked,
+            Evidence.id
+            == ranked.c.evidence_row_id,
+        )
+        .filter(ranked.c.row_rank == 1)
+        .all()
+    )
+
+
+def _query_current_findings(
+    db: Session,
+    asset_ids: set | None,
+) -> list:
+    logical_type = func.coalesce(
+        Finding.finding_type,
+        Finding.title,
+        Finding.finding_id,
+    )
+
+    ranked = (
+        db.query(
+            Finding.id.label("finding_row_id"),
+            func.row_number()
+            .over(
+                partition_by=(
+                    func.coalesce(
+                        Finding.asset_id,
+                        "unknown",
+                    ),
+                    logical_type,
+                    func.coalesce(
+                        Finding.control_id,
+                        "unknown",
+                    ),
+                ),
+                order_by=(
+                    Finding.created_at.desc(),
+                    Finding.id.desc(),
+                ),
+            )
+            .label("row_rank"),
+        )
+        .filter(Finding.status == "open")
+    )
+
+    if asset_ids is not None:
+        if not asset_ids:
+            return []
+
+        ranked = ranked.filter(
+            Finding.asset_id.in_(asset_ids)
+        )
+
+    ranked = ranked.subquery()
+
+    return (
+        db.query(Finding)
+        .join(
+            ranked,
+            Finding.id
+            == ranked.c.finding_row_id,
+        )
+        .filter(ranked.c.row_rank == 1)
+        .all()
+    )
+
+
+def _compliance_records(
+    db: Session,
+    environment: str | None,
+) -> tuple:
+    cache_key = environment or "all"
+
+    cache = db.info.setdefault(
+        "compliance_records",
+        {},
+    )
+
+    if cache_key in cache:
+        return cache[cache_key]
+
+    asset_ids = _asset_ids_for_environment(
+        db,
+        environment,
+    )
+
+    evidence = _query_latest_evidence(
+        db,
+        asset_ids,
+    )
+
+    current_evidence_ids = {
+        evidence_record.evidence_id
+        for evidence_record in evidence
+        if evidence_record.evidence_id
+    }
+
+    findings = _query_current_findings(
+        db,
+        asset_ids,
+    )
+
+    findings = _current_findings_only(
+        findings,
+        current_evidence_ids,
+    )
+
+    asset_scope_count = (
+        len(asset_ids)
+        if asset_ids is not None
+        else db.query(Asset).count()
+    )
+
+    cache[cache_key] = (
+        asset_ids,
+        asset_scope_count,
+        evidence,
+        findings,
+    )
+
+    return cache[cache_key]
+
+
 def calculate_score(framework: str, db: Session, environment: str | None = None) -> dict:
     if framework not in FRAMEWORK_REQUIREMENTS:
         return {
@@ -208,26 +381,17 @@ def calculate_score(framework: str, db: Session, environment: str | None = None)
             "error": "Unknown framework",
         }
 
-    asset_ids = _asset_ids_for_environment(db, environment)
+    (
+        asset_ids,
+        asset_scope_count,
+        evidence,
+        findings,
+    ) = _compliance_records(
+        db,
+        environment,
+    )
 
     profile = FRAMEWORK_REQUIREMENTS[framework]
-    evidence = _filter_by_environment(db.query(Evidence).all(), asset_ids)
-    findings = _filter_by_environment(db.query(Finding).all(), asset_ids)
-
-    evidence = _latest_evidence_records(evidence)
-
-    current_evidence_ids = {
-        ev.evidence_id
-        for ev in evidence
-        if getattr(ev, "evidence_id", None)
-    }
-
-    findings = [
-        f for f in findings
-        if getattr(f, "status", None) == "open"
-    ]
-
-    findings = _current_findings_only(findings, current_evidence_ids)
 
     requirement_results = []
     weighted_score = 0.0
@@ -317,11 +481,7 @@ def calculate_score(framework: str, db: Session, environment: str | None = None)
         "framework": framework,
         "label": profile["label"],
         "environment": environment or "all",
-        "asset_scope_count": (
-            len(asset_ids)
-            if asset_ids is not None
-            else db.query(Asset).count()
-        ),
+        "asset_scope_count": asset_scope_count,
         "readiness_score": score,
         "status": (
             "strong_readiness" if score >= 90 else
@@ -384,8 +544,14 @@ def findings_by_framework(
     environment: str = "all",
     db: Session = Depends(get_db),
 ):
-    asset_ids = _asset_ids_for_environment(db, environment)
-    findings = _filter_by_environment(db.query(Finding).all(), asset_ids)
+    asset_ids = _asset_ids_for_environment(
+        db,
+        environment,
+    )
+    findings = _query_current_findings(
+        db,
+        asset_ids,
+    )
 
     return [
         f for f in findings
@@ -403,9 +569,14 @@ def evidence_by_framework(
     environment: str = "all",
     db: Session = Depends(get_db),
 ):
-    asset_ids = _asset_ids_for_environment(db, environment)
-    evidence = _filter_by_environment(db.query(Evidence).all(), asset_ids)
-    evidence = _latest_evidence_records(evidence)
+    asset_ids = _asset_ids_for_environment(
+        db,
+        environment,
+    )
+    evidence = _query_latest_evidence(
+        db,
+        asset_ids,
+    )
 
     return [
         e for e in evidence

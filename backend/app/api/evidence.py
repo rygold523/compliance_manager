@@ -1,41 +1,142 @@
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, UploadFile, File, Form
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    Query,
+    UploadFile,
+)
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
 from app.models import Evidence
 
+
 router = APIRouter()
 
 
-def latest_evidence_only(records):
-    latest = {}
-
-    for ev in records:
-        key = (
-            ev.asset_id or "unknown",
-            ev.collector or ev.evidence_type or ev.source or "unknown",
-            ev.control_id or "unknown",
-        )
-
-        if key not in latest or ev.created_at > latest[key].created_at:
-            latest[key] = ev
-
-    return sorted(latest.values(), key=lambda x: x.created_at, reverse=True)
+def serialize_evidence(
+    evidence: Evidence,
+) -> dict:
+    return {
+        "id": evidence.id,
+        "evidence_id": evidence.evidence_id,
+        "finding_id": evidence.finding_id,
+        "asset_id": evidence.asset_id,
+        "control_id": evidence.control_id,
+        "framework": evidence.framework,
+        "filename": evidence.filename,
+        "file_path": evidence.file_path,
+        "source": evidence.source,
+        "description": evidence.description,
+        "collector": evidence.collector,
+        "evidence_type": evidence.evidence_type,
+        "frameworks": evidence.frameworks or {},
+        "validated": bool(evidence.validated),
+        "created_at": evidence.created_at,
+    }
 
 
 @router.get("/")
-def list_current_evidence(db: Session = Depends(get_db)):
-    records = db.query(Evidence).all()
-    return latest_evidence_only(records)
+def list_current_evidence(
+    limit: int = Query(
+        default=1000,
+        ge=1,
+        le=5000,
+    ),
+    db: Session = Depends(get_db),
+):
+    logical_collector = func.coalesce(
+        Evidence.collector,
+        Evidence.evidence_type,
+        Evidence.source,
+        "unknown",
+    )
+
+    ranked = (
+        db.query(
+            Evidence.id.label("evidence_row_id"),
+            func.row_number()
+            .over(
+                partition_by=(
+                    func.coalesce(
+                        Evidence.asset_id,
+                        "unknown",
+                    ),
+                    logical_collector,
+                    func.coalesce(
+                        Evidence.control_id,
+                        "unknown",
+                    ),
+                ),
+                order_by=(
+                    Evidence.created_at.desc(),
+                    Evidence.id.desc(),
+                ),
+            )
+            .label("row_rank"),
+        )
+        .subquery()
+    )
+
+    records = (
+        db.query(Evidence)
+        .join(
+            ranked,
+            Evidence.id
+            == ranked.c.evidence_row_id,
+        )
+        .filter(ranked.c.row_rank == 1)
+        .order_by(
+            Evidence.created_at.desc(),
+            Evidence.id.desc(),
+        )
+        .limit(limit)
+        .all()
+    )
+
+    response = [
+        serialize_evidence(record)
+        for record in records
+    ]
+
+    db.rollback()
+    return response
 
 
 @router.get("/history")
-def list_evidence_history(db: Session = Depends(get_db)):
-    return db.query(Evidence).order_by(Evidence.id.desc()).all()
+def list_evidence_history(
+    limit: int = Query(
+        default=250,
+        ge=1,
+        le=1000,
+    ),
+    offset: int = Query(
+        default=0,
+        ge=0,
+    ),
+    db: Session = Depends(get_db),
+):
+    records = (
+        db.query(Evidence)
+        .order_by(Evidence.id.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+    response = [
+        serialize_evidence(record)
+        for record in records
+    ]
+
+    db.rollback()
+    return response
 
 
 @router.post("/upload")
@@ -49,14 +150,30 @@ async def upload_evidence(
     framework: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
-    evidence_id = f"EV-{uuid4().hex[:12].upper()}"
-    safe_name = Path(file.filename or "evidence.bin").name
-    target_dir = Path(settings.evidence_root) / (asset_id or "manual") / (control_id or "unmapped")
-    target_dir.mkdir(parents=True, exist_ok=True)
-    target_path = target_dir / f"{evidence_id}_{safe_name}"
-    target_path.write_bytes(await file.read())
+    evidence_id = (
+        f"EV-{uuid4().hex[:12].upper()}"
+    )
+    safe_name = Path(
+        file.filename or "evidence.bin"
+    ).name
+    target_dir = (
+        Path(settings.evidence_root)
+        / (asset_id or "manual")
+        / (control_id or "unmapped")
+    )
+    target_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+    target_path = (
+        target_dir
+        / f"{evidence_id}_{safe_name}"
+    )
+    target_path.write_bytes(
+        await file.read()
+    )
 
-    ev = Evidence(
+    evidence = Evidence(
         evidence_id=evidence_id,
         finding_id=finding_id,
         asset_id=asset_id,
@@ -68,7 +185,8 @@ async def upload_evidence(
         description=description,
     )
 
-    db.add(ev)
+    db.add(evidence)
     db.commit()
-    db.refresh(ev)
-    return ev
+    db.refresh(evidence)
+
+    return serialize_evidence(evidence)

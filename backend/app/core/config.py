@@ -5,6 +5,7 @@ class Settings(BaseSettings):
     app_env: str = "production"
     database_url: str = "postgresql+psycopg2://aivuln:change_me@aivuln-postgres:5432/aivuln"
     evidence_root: str = "/app/evidence"
+    public_backend_url: str = "http://localhost:8000"
 
     remote_exec_enabled: bool = True
     remote_exec_user: str = "compliance-agent"

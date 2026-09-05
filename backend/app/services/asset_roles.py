@@ -1,5 +1,7 @@
 SUPPORTED_ASSET_ROLES = [
     "application_server",
+    "web_automation_server",
+    "web_automation_orchestrator_server",
     "web_server",
     "database_server",
     "monitoring_server",
@@ -133,6 +135,25 @@ ROLE_EXPECTED_COLLECTORS = {
         "listening_services",
     ],
 }
+
+# Web automation servers use the application-server
+# baseline plus role-specific automation checks.
+ROLE_EXPECTED_COLLECTORS[
+    "web_automation_server"
+] = list(
+    ROLE_EXPECTED_COLLECTORS[
+        "application_server"
+    ]
+)
+
+ROLE_EXPECTED_COLLECTORS[
+    "web_automation_orchestrator_server"
+] = list(
+    ROLE_EXPECTED_COLLECTORS[
+        "application_server"
+    ]
+)
+
 
 BASELINE_COLLECTORS = [
     "trend_micro_ds_agent",
