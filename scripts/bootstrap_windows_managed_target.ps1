@@ -2,7 +2,7 @@ param(
     [string]$BackendUrl = "http://localhost:8000",
     [string]$AssetId = $env:COMPUTERNAME,
     [string]$InstallDir = "C:\ProgramData\ComplianceAgent",
-    [string]$AgentVersion = "2026.09.05.1"
+    [string]$AgentVersion = "2026.09.09.1"
 )
 
 $ErrorActionPreference = "Stop"
@@ -314,6 +314,168 @@ function Get-LocalIdentityInventory {
     }
 }
 
+function Get-WindowsOsInventory {
+    $OperatingSystem = Get-CimInstance `
+        -ClassName Win32_OperatingSystem `
+        -ErrorAction Stop
+
+    return [ordered]@{
+        hostname = $env:COMPUTERNAME
+        os_name = [string]$OperatingSystem.Caption
+        os_version = [string]$OperatingSystem.Version
+        kernel_version = (
+            "{0} (Build {1})" -f `
+                $OperatingSystem.Version,
+                $OperatingSystem.BuildNumber
+        )
+        build_number = [string]$OperatingSystem.BuildNumber
+        architecture = [string]$OperatingSystem.OSArchitecture
+        collected_at = (
+            Get-Date
+        ).ToUniversalTime().ToString("o")
+    }
+}
+
+function Get-WindowsResourceInventory {
+    $ComputerSystem = Get-CimInstance `
+        -ClassName Win32_ComputerSystem `
+        -ErrorAction Stop
+
+    $SystemDrive = [string]$env:SystemDrive
+    $LogicalDisk = Get-CimInstance `
+        -ClassName Win32_LogicalDisk `
+        -Filter "DeviceID='$SystemDrive'" `
+        -ErrorAction Stop
+
+    $MemoryTotalMb = [math]::Round(
+        [double]$ComputerSystem.TotalPhysicalMemory / 1MB,
+        0
+    )
+    $DiskTotalGb = [math]::Round(
+        [double]$LogicalDisk.Size / 1GB,
+        0
+    )
+
+    return [ordered]@{
+        hostname = $env:COMPUTERNAME
+        cpu_cores = [int]$ComputerSystem.NumberOfLogicalProcessors
+        memory_total_mb = [int64]$MemoryTotalMb
+        disk_total = "{0}G" -f [int64]$DiskTotalGb
+        root_disk_allocated = "{0}G" -f [int64]$DiskTotalGb
+        system_drive = $SystemDrive
+        disk_total_bytes = [int64]$LogicalDisk.Size
+        disk_free_bytes = [int64]$LogicalDisk.FreeSpace
+        collected_at = (
+            Get-Date
+        ).ToUniversalTime().ToString("o")
+    }
+}
+
+function Get-WindowsPackageInventory {
+    $RegistryPaths = @(
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
+    )
+
+    $Seen = @{}
+    $Packages = @()
+
+    foreach ($RegistryPath in $RegistryPaths) {
+        $Entries = @(
+            Get-ItemProperty `
+                -Path $RegistryPath `
+                -ErrorAction SilentlyContinue
+        )
+
+        foreach ($Entry in $Entries) {
+            $Name = [string]$Entry.DisplayName
+            $Version = [string]$Entry.DisplayVersion
+
+            if ([string]::IsNullOrWhiteSpace($Name)) {
+                continue
+            }
+
+            $Key = (
+                "{0}|{1}" -f $Name, $Version
+            ).ToLowerInvariant()
+
+            if ($Seen.ContainsKey($Key)) {
+                continue
+            }
+
+            $Seen[$Key] = $true
+            $Packages += [ordered]@{
+                name = $Name
+                installed_version = $Version
+                latest_candidate = $Version
+                update_available = "no"
+                held = "no"
+                publisher = [string]$Entry.Publisher
+                install_date = [string]$Entry.InstallDate
+            }
+        }
+    }
+
+    return [ordered]@{
+        hostname = $env:COMPUTERNAME
+        package_count = $Packages.Count
+        packages = @(
+            $Packages |
+                Sort-Object `
+                    name,
+                    installed_version
+        )
+        collected_at = (
+            Get-Date
+        ).ToUniversalTime().ToString("o")
+    }
+}
+
+function Get-WindowsAvailableUpdates {
+    try {
+        $UpdateSession = New-Object `
+            -ComObject Microsoft.Update.Session
+        $UpdateSearcher = $UpdateSession.CreateUpdateSearcher()
+        $SearchResult = $UpdateSearcher.Search(
+            "IsInstalled=0 and IsHidden=0"
+        )
+
+        $Updates = @()
+
+        foreach ($Update in $SearchResult.Updates) {
+            $Updates += [ordered]@{
+                name = [string]$Update.Title
+                title = [string]$Update.Title
+                kb_article_ids = @($Update.KBArticleIDs)
+                severity = [string]$Update.MsrcSeverity
+                reboot_required = [bool]$Update.RebootRequired
+            }
+        }
+
+        return [ordered]@{
+            hostname = $env:COMPUTERNAME
+            query_succeeded = $true
+            available_count = $Updates.Count
+            updates = $Updates
+            collected_at = (
+                Get-Date
+            ).ToUniversalTime().ToString("o")
+        }
+    }
+    catch {
+        return [ordered]@{
+            hostname = $env:COMPUTERNAME
+            query_succeeded = $false
+            available_count = 0
+            updates = @()
+            error = $_.Exception.Message
+            collected_at = (
+                Get-Date
+            ).ToUniversalTime().ToString("o")
+        }
+    }
+}
+
 $Manifest = $null
 
 if (Test-Path -LiteralPath $ManifestPath) {
@@ -396,6 +558,10 @@ $Trend = Test-ServicePresence `
     )
 
 $IdentityInventory = Get-LocalIdentityInventory
+$OsInventory = Get-WindowsOsInventory
+$ResourceInventory = Get-WindowsResourceInventory
+$PackageInventory = Get-WindowsPackageInventory
+$AvailableUpdates = Get-WindowsAvailableUpdates
 
 $Results = [ordered]@{
     asset_id = [string]$Config.asset_id
@@ -426,6 +592,31 @@ $Results = [ordered]@{
             status = "completed"
             validated = $true
             raw = $IdentityInventory
+        }
+        os_inventory = [ordered]@{
+            status = "completed"
+            validated = $true
+            raw = $OsInventory
+        }
+        disk_usage = [ordered]@{
+            status = "completed"
+            validated = $true
+            raw = $ResourceInventory
+        }
+        package_inventory = [ordered]@{
+            status = "completed"
+            validated = $true
+            raw = $PackageInventory
+        }
+        available_updates = [ordered]@{
+            status = if ($AvailableUpdates.query_succeeded) {
+                "completed"
+            }
+            else {
+                "failed"
+            }
+            validated = [bool]$AvailableUpdates.query_succeeded
+            raw = $AvailableUpdates
         }
         duo_mfa_windows = [ordered]@{
             status = if ($Duo.present) {
@@ -537,6 +728,10 @@ $Manifest = [ordered]@{
         "agent_lifecycle",
         "collector_health",
         "iam_users",
+        "os_inventory",
+        "disk_usage",
+        "package_inventory",
+        "available_updates",
         "duo_mfa_windows",
         "automox_windows_agent",
         "trend_micro_windows_agent",

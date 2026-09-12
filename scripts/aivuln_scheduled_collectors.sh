@@ -689,6 +689,9 @@ curl -fsS "${API_URL}/api/assets/" |
             "deployed"
         )
       )
+    | select(
+        ((.os_family // "") | ascii_downcase) != "windows"
+      )
   ' |
   while IFS= read -r asset
   do

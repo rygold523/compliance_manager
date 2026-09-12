@@ -20,6 +20,46 @@ router = APIRouter(
 
 
 COLLECTOR_CONTROL_MAP = {
+    "os_inventory": {
+        "control_id": "AM-01",
+        "frameworks": {
+            "pci_dss": ["12.5"],
+            "soc2": ["CC6.1", "CC8.1"],
+            "nist_800_53": ["CM-8"],
+            "iso_27001": ["A.5.9"],
+            "iso_27002": ["5.9"],
+        },
+    },
+    "disk_usage": {
+        "control_id": "CP-01",
+        "frameworks": {
+            "pci_dss": ["12.10.1"],
+            "soc2": ["A1.2"],
+            "nist_800_53": ["CP-9"],
+            "iso_27001": ["A.8.13"],
+            "iso_27002": ["8.13"],
+        },
+    },
+    "package_inventory": {
+        "control_id": "CM-01",
+        "frameworks": {
+            "pci_dss": ["6.3.3", "12.5"],
+            "soc2": ["CC7.1", "CC8.1"],
+            "nist_800_53": ["CM-8", "SI-2"],
+            "iso_27001": ["A.5.9", "A.8.8"],
+            "iso_27002": ["5.9", "8.8"],
+        },
+    },
+    "available_updates": {
+        "control_id": "VM-01",
+        "frameworks": {
+            "pci_dss": ["6.3.3", "11.3.1"],
+            "soc2": ["CC7.1"],
+            "nist_800_53": ["RA-5", "SI-2"],
+            "iso_27001": ["A.8.8"],
+            "iso_27002": ["8.8"],
+        },
+    },
     "agent_lifecycle": {
         "control_id": "CM-08",
         "frameworks": {

@@ -22,6 +22,7 @@ DETAIL_COLLECTORS = (
     "apt_policy",
     "held_packages",
     "resource_usage",
+    "available_updates",
 )
 _DETAIL_CACHE_LOCK = RLock()
 _DETAIL_CACHE: dict[str, Any] = {
@@ -225,6 +226,24 @@ def _package_status_from_new(payload):
     return rows
 
 
+def _available_update_count(payload):
+    if not isinstance(payload, dict):
+        return 0
+
+    available_count = payload.get("available_count")
+    if available_count is not None:
+        try:
+            return max(0, int(available_count))
+        except (TypeError, ValueError):
+            pass
+
+    updates = payload.get("updates")
+    if isinstance(updates, list):
+        return len(updates)
+
+    return 0
+
+
 def _parse_dpkg(output):
     packages = []
 
@@ -391,10 +410,16 @@ def list_asset_details(db: Session = Depends(get_db)):
         disk_payload = _payload_from_evidence(
             evidence.get((asset_id, "disk_usage"))
         )
+        update_payload = _payload_from_evidence(
+            evidence.get((asset_id, "available_updates"))
+        )
 
         os_info = _parse_os(os_payload)
 
         package_status = _package_status_from_new(pkg_payload)
+        available_update_count = _available_update_count(
+            update_payload
+        )
 
         if not package_status:
             legacy_packages = _parse_dpkg(
@@ -433,7 +458,13 @@ def list_asset_details(db: Session = Depends(get_db)):
             "os_version": os_info["os_version"],
             "kernel_version": os_info["kernel_version"],
             "package_count": len(package_status),
-            "packages_with_updates": len([p for p in package_status if p["update_available"] == "yes"]),
+            "packages_with_updates": max(
+                len([
+                    p for p in package_status
+                    if p["update_available"] == "yes"
+                ]),
+                available_update_count,
+            ),
             "packages_unknown_latest": len([p for p in package_status if p["update_available"] == "unknown"]),
             "held_packages": len([p for p in package_status if p["held"] == "yes"]),
             "resources": resource_usage,

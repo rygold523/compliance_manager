@@ -23,8 +23,12 @@ CONTROL_CATALOG = {
             "iso_27001": ["A.5.15", "A.5.16"],
             "iso_27002": ["5.15", "5.16"],
         },
-        "required_collectors": ["user_changes", "auth_success", "auth_failure"],
-        "supporting_collectors": ["ssh_config", "sudo_activity"],
+        "required_collectors": ["iam_users", "user_changes", "auth_success", "auth_failure"],
+        "supporting_collectors": [
+            "ssh_config",
+            "sudo_activity",
+            "changelog_access_management",
+        ],
         "documentation_sufficient": False,
     },
     "AC-04": {
@@ -93,8 +97,13 @@ CONTROL_CATALOG = {
             "iso_27001": ["A.5.9"],
             "iso_27002": ["5.9"],
         },
-        "required_collectors": ["packages"],
-        "supporting_collectors": ["docker_inventory", "open_ports"],
+        "required_collectors": ["os_inventory"],
+        "supporting_collectors": [
+            "package_inventory",
+            "packages",
+            "docker_inventory",
+            "changelog_asset_inventory",
+        ],
         "documentation_sufficient": True,
     },
     "AM-02": {

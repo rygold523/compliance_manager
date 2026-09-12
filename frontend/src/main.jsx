@@ -57,7 +57,7 @@ function formatAuditCurrentStateValue(value) {
       .join(" | ");
   }
 
-  return String(value);
+  return isTimestampValue(value) ? formatDateTime(value) : String(value);
 }
 
 function formatAuditCurrentState(currentState) {
@@ -106,7 +106,7 @@ function renderAnyValue(value) {
     );
   }
 
-  return String(value);
+  return isTimestampValue(value) ? formatDateTime(value) : String(value);
 }
 
 
@@ -183,7 +183,7 @@ function renderCurrentStateValue(value) {
     );
   }
 
-  return String(value);
+  return isTimestampValue(value) ? formatDateTime(value) : String(value);
 }
 
 function renderCurrentState(currentState) {
@@ -213,6 +213,14 @@ import { createRoot } from "react-dom/client";
 import "./style.css";
 import ContinuousComplianceState from "./pages/continuous-compliance/ContinuousComplianceState.jsx";
 import IAM from "./pages/IAM";
+import UserManagement from "./pages/UserManagement";
+import AccessReviews from "./pages/AccessReviews";
+import AuthGate from "./AuthGate";
+import { API, apiFetch } from "./auth";
+import { formatDateTime, isTimestampValue } from "./dateTime";
+import { hasCapability } from "./capabilities";
+import { downloadCsv } from "./tableTools";
+import { PaginationControls, SortableHeader, useTableView } from "./tableView";
 
 
 function normalizeComplianceScores(scorePayload) {
@@ -276,7 +284,6 @@ function normalizeComplianceScores(scorePayload) {
   });
 }
 
-const API = import.meta.env.VITE_API_BASE_URL || `${window.location.protocol}//${window.location.hostname}:8000`;
 
 
 const DASHBOARD_CACHE_KEY = "compliance_manager_dashboard_cache_v1";
@@ -286,8 +293,20 @@ const VALID_PAGES = new Set([
   "iam",
   "assets",
   "collectors",
-  "changelog"
+  "changelog",
+  "users",
+  "access-reviews"
 ]);
+
+const CHANGELOG_COLUMNS = [
+  { key: "timestamp", label: "Timestamp" },
+  { key: "event_type", label: "Event Type" },
+  { key: "asset_id", label: "Asset" },
+  { key: "summary", label: "Summary" },
+  { key: "note", label: "Note" },
+  { key: "jira_url", label: "Jira Ticket" },
+  { key: "actions", label: "Actions", sortable: false }
+];
 
 function loadActivePage() {
   try {
@@ -392,6 +411,8 @@ function filterStaleFindings(findings, evidence) {
 function formatCell(value) {
   if (value === null || value === undefined) return "";
 
+  if (isTimestampValue(value)) return formatDateTime(value);
+
   if (Array.isArray(value)) {
     if (value.length === 0) return "None";
 
@@ -401,7 +422,7 @@ function formatCell(value) {
       if (typeof item === "object") {
         return Object.entries(item)
           .filter(([, v]) => v !== null && v !== undefined && v !== "")
-          .map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : String(v)}`)
+          .map(([k, v]) => `${k}: ${isTimestampValue(v) ? formatDateTime(v) : typeof v === "object" ? JSON.stringify(v) : String(v)}`)
           .join(" | ");
       }
 
@@ -411,7 +432,7 @@ function formatCell(value) {
 
   if (typeof value === "object") {
     return Object.entries(value)
-      .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : typeof v === "object" ? JSON.stringify(v) : String(v)}`)
+      .map(([k, v]) => `${k}: ${isTimestampValue(v) ? formatDateTime(v) : Array.isArray(v) ? v.join(", ") : typeof v === "object" ? JSON.stringify(v) : String(v)}`)
       .join("\n");
   }
 
@@ -470,23 +491,48 @@ function Section({ title, children }) {
   );
 }
 
-function DataTable({ columns, rows, emptyText = "No records found." }) {
+function DataTable({
+  columns,
+  rows,
+  emptyText = "No records found.",
+  exportFilename = "dashboard-data.csv"
+}) {
+  const [query, setQuery] = useState("");
+  const searchableColumns = columns.filter(column => column.key !== "actions");
+  const table = useTableView(rows, query, columns);
+
   return (
+    <>
+    <div className="table-toolbar">
+      <input
+        type="search"
+        value={query}
+        onChange={event => setQuery(event.target.value)}
+        placeholder="Search this table"
+        aria-label="Search this table"
+      />
+      <span className="muted">{table.filteredRows.length} of {(rows || []).length}</span>
+      <button
+        className="secondary"
+        disabled={table.filteredRows.length === 0}
+        onClick={() => downloadCsv(exportFilename, searchableColumns, table.sortedRows)}
+      >
+        Export CSV
+      </button>
+    </div>
     <table>
       <thead>
         <tr>
-          {columns.map(col => (
-            <th key={col.key}>{col.label}</th>
-          ))}
+          {columns.map(col => <SortableHeader key={col.key} column={col} sort={table.sort} onSort={table.toggleSort} />)}
         </tr>
       </thead>
       <tbody>
-        {!rows || rows.length === 0 ? (
+        {table.filteredRows.length === 0 ? (
           <tr>
             <td colSpan={columns.length}>{emptyText}</td>
           </tr>
         ) : (
-          rows.map((row, idx) => (
+          table.pagedRows.map((row, idx) => (
             <tr key={idx}>
               {columns.map(col => (
                 <td key={col.key}>
@@ -500,10 +546,45 @@ function DataTable({ columns, rows, emptyText = "No records found." }) {
         )}
       </tbody>
     </table>
+    <PaginationControls {...table} total={table.sortedRows.length} visibleCount={table.pagedRows.length} />
+    </>
   );
 }
 
-function App() {
+function GroupedRecords({ rows, noun, onOpen }) {
+  const [query, setQuery] = useState("");
+  const keys = [...new Set((rows || []).flatMap(row => Object.keys(row || {})))];
+  const columns = keys.map(key => ({ key, label: key }));
+  const table = useTableView(rows, query, columns);
+  const groupedRows = Object.entries(groupByAsset(table.sortedRows)).map(([asset, items]) => ({ asset, items }));
+  const groupColumns = [{ key: "asset", label: "Asset" }, { key: "count", label: "Records", sortValue: row => row.items.length }];
+  const groups = useTableView(groupedRows, "", groupColumns, { key: "asset", direction: "asc" });
+
+  return (
+    <>
+      <div className="table-toolbar">
+        <input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder={`Search ${noun.toLowerCase()}`} />
+        <span className="muted">{table.filteredRows.length} of {(rows || []).length}</span>
+        <button className="secondary" disabled={!table.filteredRows.length} onClick={() => downloadCsv(`${noun.toLowerCase()}.csv`, columns, table.sortedRows)}>Export CSV</button>
+      </div>
+      {groups.filteredRows.length === 0 ? <p className="muted">No matching records.</p> : groups.pagedRows.map(({ asset, items }) => (
+        <button key={asset} style={{ display: "block", marginBottom: "10px" }} onClick={() => onOpen(asset, items)}>
+          {asset} ({items.length})
+        </button>
+      ))}
+      <PaginationControls {...groups} total={groups.sortedRows.length} visibleCount={groups.pagedRows.length} />
+    </>
+  );
+}
+
+function App({ currentUser, onLogout }) {
+  const canManage = hasCapability(currentUser, "manage_dashboard");
+  const canGenerateReports = hasCapability(currentUser, "generate_reports");
+  const canExportAuditData = hasCapability(currentUser, "export_audit_data");
+  const canEditChangelog = hasCapability(currentUser, "edit_changelog");
+  const canManageUsers = hasCapability(currentUser, "manage_users");
+  const canReviewAccess = hasCapability(currentUser, "review_access");
+  const canManageAccessReviews = hasCapability(currentUser, "manage_access_reviews");
   const [health, setHealth] = useState(null);
   const [assets, setAssets] = useState([]);
   const [findings, setFindings] = useState([]);
@@ -555,10 +636,25 @@ function App() {
   const [assetDetailsLoading, setAssetDetailsLoading] = useState(false);
   const [assetDetailsError, setAssetDetailsError] = useState("");
   const [changelogEvents, setChangelogEvents] = useState([]);
+  const [changelogQuery, setChangelogQuery] = useState("");
+  const changelogTable = useTableView(
+    changelogEvents,
+    changelogQuery,
+    CHANGELOG_COLUMNS,
+    { key: "timestamp", direction: "desc" }
+  );
   const [changelogNoteDrafts, setChangelogNoteDrafts] = useState({});
   const [agentLifecycle, setAgentLifecycle] = useState([]);
   const [agentMode, setAgentMode] = useState("deploy");
   const [agentForm, setAgentForm] = useState(emptyAgentForm);
+  const [dashboardLoadState, setDashboardLoadState] = useState({});
+
+  function updateDashboardCache(partial) {
+    saveDashboardCache({
+      ...(loadDashboardCache() || {}),
+      ...partial
+    });
+  }
 
   async function refreshDashboard(signal) {
     if (!cacheHydratedRef.current) {
@@ -586,75 +682,54 @@ function App() {
       cacheHydratedRef.current = true;
     }
 
-    const [h, a, f, e, s, c, env, p, d, r, ctrl, cr, ar, cc, al] = await Promise.all([
-      fetch(`${API}/api/health`, { signal }).then(r => r.ok ? r.json() : Promise.reject(new Error("health check failed"))),
-      fetch(`${API}/api/assets/`, { signal }).then(r => r.json()),
-      fetch(`${API}/api/findings/`, { signal }).then(r => r.json()),
-      fetch(`${API}/api/evidence/`, { signal }).then(r => r.json()),
-      fetch(`${API}/api/compliance/score?environment=${selectedEnvironment}`, { signal }).then(r => r.json()),
-      fetch(`${API}/api/collector-mappings/`, { signal }).then(r => r.json()).catch(error => error.name === "AbortError" ? Promise.reject(error) : ({ collectors: [] })),
-      fetch(`${API}/api/compliance/environments`, { signal }).then(r => r.json()),
-      fetch(`${API}/api/policies/`, { signal }).then(r => r.json()).catch(error => error.name === "AbortError" ? Promise.reject(error) : []),
-      fetch(`${API}/api/documents/`, { signal }).then(r => r.json()).catch(error => error.name === "AbortError" ? Promise.reject(error) : []),
-      fetch(`${API}/api/remediations/`, { signal }).then(r => r.json()).catch(error => error.name === "AbortError" ? Promise.reject(error) : []),
-      fetch(`${API}/api/controls/`, { signal }).then(r => r.json()).catch(error => error.name === "AbortError" ? Promise.reject(error) : []),
-      fetch(`${API}/api/compliance/control-readiness/`, { signal }).then(r => r.json()).catch(error => error.name === "AbortError" ? Promise.reject(error) : ({ summary: {}, framework_scores: {}, controls: [] })),
-      fetch(`${API}/api/audit-readiness/`, { signal }).then(r => r.json()).catch(error => error.name === "AbortError" ? Promise.reject(error) : ({ frameworks: [] })),
-      fetch(`${API}/api/collector-coverage/`, { signal }).then(r => r.json()).catch(error => error.name === "AbortError" ? Promise.reject(error) : ({ summary: {}, collectors: [] })),
-      fetch(`${API}/api/agent-lifecycle/`, { signal }).then(r => r.json()).catch(error => error.name === "AbortError" ? Promise.reject(error) : ({ assets: [] }))
-    ]);
-
-    const filteredFindings = filterStaleFindings(Array.isArray(f) ? f : [], Array.isArray(e) ? e : []);
-
-    setHealth(h);
-    setAssets(Array.isArray(a) ? a : []);
-    setFindings(filteredFindings);
-    setEvidence(Array.isArray(e) ? e : []);
-    setControlReadiness(cr || { summary: {}, framework_scores: {}, controls: [] });
-    setAuditReadiness(ar || { frameworks: [] });
-
-    const mergedScores = {
-      ...(s || {}),
-      ...((cr && cr.framework_scores) || {})
+    const requestJson = async (path) => {
+      const response = await apiFetch(`${API}${path}`, { signal });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response.json();
     };
 
-    setScores(mergedScores);
+    const load = async (key, request, apply) => {
+      setDashboardLoadState(state => ({ ...state, [key]: { status: "loading" } }));
+      try {
+        const data = await request();
+        if (!signal?.aborted) {
+          apply(data);
+          setDashboardLoadState(state => ({ ...state, [key]: { status: "ready" } }));
+        }
+      } catch (error) {
+        if (error.name === "AbortError") throw error;
+        console.error(`Failed to load dashboard resource: ${key}`, error);
+        setDashboardLoadState(state => ({
+          ...state,
+          [key]: { status: "error", error: String(error.message || error) }
+        }));
+      }
+    };
 
-    setCollectors(c.collectors || []);
-    setEnvironments(env.environments || ["all"]);
-    setPolicies(Array.isArray(p) ? p : []);
-    setDocuments(Array.isArray(d) ? d : []);
-    setRemediations(Array.isArray(r) ? r : []);
-    setControls(Array.isArray(ctrl) ? ctrl : []);
+    const tasks = [
+      load("system", () => requestJson("/api/health"), data => { setHealth(data); updateDashboardCache({ health: data }); }),
+      load("assets", () => requestJson("/api/assets/"), data => { const rows = Array.isArray(data) ? data : []; setAssets(rows); updateDashboardCache({ assets: rows }); }),
+      load("findings", () => Promise.all([requestJson("/api/findings/"), requestJson("/api/evidence/")]), ([findingData, evidenceData]) => { const evidenceRows = Array.isArray(evidenceData) ? evidenceData : []; const rows = filterStaleFindings(Array.isArray(findingData) ? findingData : [], evidenceRows); setFindings(rows); setEvidence(evidenceRows); updateDashboardCache({ findings: rows, evidence: evidenceRows }); }),
+      load("scores", () => Promise.all([requestJson(`/api/compliance/score?environment=${selectedEnvironment}`), requestJson("/api/compliance/control-readiness/")]), ([scoreData, readinessData]) => { const readiness = readinessData || { summary: {}, framework_scores: {}, controls: [] }; const merged = { ...(scoreData || {}), ...(readiness.framework_scores || {}) }; setScores(merged); setControlReadiness(readiness); updateDashboardCache({ scores: merged, controlReadiness: readiness }); }),
+      load("collectors", () => requestJson("/api/collector-mappings/"), data => { const rows = data.collectors || []; setCollectors(rows); updateDashboardCache({ collectors: rows }); }),
+      load("environments", () => requestJson("/api/compliance/environments"), data => { const rows = data.environments || ["all"]; setEnvironments(rows); updateDashboardCache({ environments: rows }); }),
+      load("policies", () => requestJson("/api/policies/"), data => { const rows = Array.isArray(data) ? data : []; setPolicies(rows); updateDashboardCache({ policies: rows }); }),
+      load("documents", () => requestJson("/api/documents/"), data => { const rows = Array.isArray(data) ? data : []; setDocuments(rows); updateDashboardCache({ documents: rows }); }),
+      load("remediations", () => requestJson("/api/remediations/"), data => { const rows = Array.isArray(data) ? data : []; setRemediations(rows); updateDashboardCache({ remediations: rows }); }),
+      load("controls", () => requestJson("/api/controls/"), data => { const rows = Array.isArray(data) ? data : []; setControls(rows); updateDashboardCache({ controls: rows }); }),
+      load("audit readiness", () => requestJson("/api/audit-readiness/"), data => { const value = data || { frameworks: [] }; setAuditReadiness(value); updateDashboardCache({ auditReadiness: value }); }),
+      load("coverage", () => requestJson("/api/collector-coverage/"), data => { const value = data || { summary: {}, collectors: [] }; setCollectorCoverage(value); updateDashboardCache({ collectorCoverage: value }); }),
+      load("agent lifecycle", () => requestJson("/api/agent-lifecycle/"), data => { const rows = data.assets || []; setAgentLifecycle(rows); updateDashboardCache({ agentLifecycle: rows }); })
+    ];
 
-    saveDashboardCache({
-      health: h,
-      assets: Array.isArray(a) ? a : [],
-      findings: filteredFindings,
-      evidence: Array.isArray(e) ? e : [],
-      scores: mergedScores,
-      collectors: c.collectors || [],
-      environments: env.environments || ["all"],
-      policies: Array.isArray(p) ? p : [],
-      documents: Array.isArray(d) ? d : [],
-      remediations: Array.isArray(r) ? r : [],
-      controls: Array.isArray(ctrl) ? ctrl : [],
-      controlReadiness: cr || { summary: {}, framework_scores: {}, controls: [] },
-      auditReadiness: ar || { frameworks: [] },
-      collectorCoverage: typeof cc !== "undefined" ? cc : { summary: {}, collectors: [] },
-      agentLifecycle: (al && al.assets) || [],
-      assetDetails
-    });
-
-    setCollectorCoverage(cc || { summary: {}, collectors: [] });
-    setAgentLifecycle((al && al.assets) || []);
+    await Promise.allSettled(tasks);
   }
 
   async function loadAssetDetails(signal) {
     setAssetDetailsLoading(true);
     setAssetDetailsError("");
     try {
-      const response = await fetch(`${API}/api/asset-details/`, {
+      const response = await apiFetch(`${API}/api/asset-details/`, {
         signal
       });
       if (!response.ok) {
@@ -677,7 +752,7 @@ function App() {
   }
 
   async function loadCollectors(signal) {
-    const response = await fetch(`${API}/api/collector-mappings/`, {
+    const response = await apiFetch(`${API}/api/collector-mappings/`, {
       signal
     });
     if (!response.ok) {
@@ -691,7 +766,7 @@ function App() {
 
   async function loadChangelog(signal) {
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `${API}/api/changelog/`,
         { signal }
       );
@@ -769,7 +844,7 @@ function App() {
     let response;
 
     try {
-      response = await fetch(
+      response = await apiFetch(
         `${API}/api/changelog/${encodeURIComponent(
           event.event_id
         )}/note`,
@@ -862,7 +937,7 @@ function App() {
   }
 
   async function runCollectors(asset_id) {
-    const res = await fetch(`${API}/api/collectors/run`, {
+    const res = await apiFetch(`${API}/api/collectors/run`, {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({ asset_id })
@@ -906,7 +981,7 @@ function App() {
   async function saveAssetClassification(assetId) {
     if (!assetId) return;
 
-    await fetch(`${API}/api/agents/${assetId}/classification`, {
+    await apiFetch(`${API}/api/agents/${assetId}/classification`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -927,7 +1002,7 @@ async function deployAgent() {
       data_classification: []
     };
 
-    const res = await fetch(`${API}/api/agents/deploy`, {
+    const res = await apiFetch(`${API}/api/agents/deploy`, {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify(payload)
@@ -948,7 +1023,7 @@ async function deployAgent() {
       compliance_scope: ["pci_dss", "soc2", "nist_800_53", "iso_27001", "iso_27002"]
     };
 
-    const res = await fetch(`${API}/api/agents/${agentForm.asset_id}`, {
+    const res = await apiFetch(`${API}/api/agents/${agentForm.asset_id}`, {
       method: "PUT",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify(payload)
@@ -969,7 +1044,7 @@ async function deployAgent() {
       compliance_scope: ["pci_dss", "soc2", "nist_800_53", "iso_27001", "iso_27002"]
     };
 
-    const res = await fetch(`${API}/api/agents/${agentForm.asset_id}/upgrade`, {
+    const res = await apiFetch(`${API}/api/agents/${agentForm.asset_id}/upgrade`, {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify(payload)
@@ -987,7 +1062,7 @@ async function deployAgent() {
       return;
     }
 
-    const res = await fetch(`${API}/api/agents/${asset_id}`, {
+    const res = await apiFetch(`${API}/api/agents/${asset_id}`, {
       method: "DELETE"
     }).then(r => r.json());
 
@@ -1011,7 +1086,7 @@ async function deployAgent() {
   async function confirmPackageUpdate() {
     if (!packageUpdateConfirm) return;
 
-    const res = await fetch(`${API}/api/package-updates/upgrade`, {
+    const res = await apiFetch(`${API}/api/package-updates/upgrade`, {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({
@@ -1028,7 +1103,7 @@ async function deployAgent() {
       return;
     }
 
-    const collectionResponse = await fetch(`${API}/api/collectors/run`, {
+    const collectionResponse = await apiFetch(`${API}/api/collectors/run`, {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({
@@ -1103,7 +1178,7 @@ async function deployAgent() {
   async function confirmBulkPackageUpdate() {
     if (!bulkPackageUpdateConfirm) return;
 
-    const res = await fetch(`${API}/api/package-updates/upgrade-all`, {
+    const res = await apiFetch(`${API}/api/package-updates/upgrade-all`, {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({
@@ -1119,7 +1194,7 @@ async function deployAgent() {
       return;
     }
 
-    const collectionResponse = await fetch(`${API}/api/collectors/run`, {
+    const collectionResponse = await apiFetch(`${API}/api/collectors/run`, {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({
@@ -1184,7 +1259,7 @@ async function deployAgent() {
   }
 
   async function analyzeEvidence() {
-    const res = await fetch(`${API}/api/evidence-analysis/analyze`, {
+    const res = await apiFetch(`${API}/api/evidence-analysis/analyze`, {
       method: "POST"
     }).then(r => r.json());
 
@@ -1193,7 +1268,7 @@ async function deployAgent() {
   }
 
   async function sendChat() {
-    const res = await fetch(`${API}/api/chat/`, {
+    const res = await apiFetch(`${API}/api/chat/`, {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({ message: chatMessage, thread_id: "gui" })
@@ -1212,7 +1287,7 @@ async function deployAgent() {
       return;
     }
 
-    const suggestion = await fetch(`${API}/api/policies/suggest-mappings`, {
+    const suggestion = await apiFetch(`${API}/api/policies/suggest-mappings`, {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({
@@ -1263,7 +1338,7 @@ async function deployAgent() {
   async function resuggestPolicyMappings() {
     if (!mappingModal) return;
 
-    const suggestion = await fetch(`${API}/api/policies/suggest-mappings`, {
+    const suggestion = await apiFetch(`${API}/api/policies/suggest-mappings`, {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({
@@ -1316,7 +1391,7 @@ async function deployAgent() {
       method = "PUT";
     }
 
-    const res = await fetch(url, {
+    const res = await apiFetch(url, {
       method,
       body: form
     }).then(r => r.json());
@@ -1365,7 +1440,7 @@ async function deployAgent() {
       url = `${API}/api/documents/${mappingModal.document_id}/mappings`;
     }
 
-    const res = await fetch(url, {
+    const res = await apiFetch(url, {
       method: "PUT",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({
@@ -1386,7 +1461,7 @@ async function deployAgent() {
       return;
     }
 
-    const suggestion = await fetch(`${API}/api/documents/suggest-mappings`, {
+    const suggestion = await apiFetch(`${API}/api/documents/suggest-mappings`, {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({
@@ -1454,7 +1529,7 @@ async function deployAgent() {
       return;
     }
 
-    const res = await fetch(`${API}/api/documents/${documentId}`, {
+    const res = await apiFetch(`${API}/api/documents/${documentId}`, {
       method: "DELETE"
     }).then(r => r.json());
 
@@ -1467,7 +1542,7 @@ async function deployAgent() {
       return;
     }
 
-    const res = await fetch(`${API}/api/policies/${policyId}`, {
+    const res = await apiFetch(`${API}/api/policies/${policyId}`, {
       method: "DELETE"
     }).then(r => r.json());
 
@@ -1514,11 +1589,23 @@ async function deployAgent() {
               {environments.map(env => <option key={env} value={env}>{env}</option>)}
             </select>
           </label>
-          <button onClick={analyzeEvidence}>Analyze Evidence Into Findings</button>
+          {canManage && <button onClick={analyzeEvidence}>Analyze Evidence Into Findings</button>}
+          <span className="signed-in-user">
+            {currentUser.display_name} ({currentUser.role})
+          </span>
+          <button className="secondary" onClick={onLogout}>Sign out</button>
         </div>
         </header>
 
       <div className="grid">
+        {Object.entries(dashboardLoadState).some(([, state]) => state.status === "error") && (
+          <div className="dashboard-load-errors" role="status">
+            <strong>Some dashboard sections could not be refreshed.</strong>
+            {Object.entries(dashboardLoadState)
+              .filter(([, state]) => state.status === "error")
+              .map(([name, state]) => <span key={name}>{name}: {state.error}</span>)}
+          </div>
+        )}
         <Section title="System">
           <p>Status: {health?.status || "loading"}</p>
         </Section>
@@ -1545,11 +1632,11 @@ async function deployAgent() {
                   <td>{r.score}</td>
                   <td>{r.status}</td>
                   <td>
-                    <a href={`${API}/api/reports/${r.framework}`} target="_blank">Generate</a>
+                    {canGenerateReports ? <><a href={`${API}/api/reports/${r.framework}`} target="_blank">Generate</a>
                     {' '}
                     <a href={`${API}/api/reports/${r.framework}/package`} target="_blank">Download ZIP</a>
                     {' '}
-                    <a href={`${API}/api/reports/${r.framework}/pdf`} target="_blank">Download PDF</a>
+                    <a href={`${API}/api/reports/${r.framework}/pdf`} target="_blank">Download PDF</a></> : <span className="muted">Read only</span>}
                   </td>
                 </tr>
               ))
@@ -1572,19 +1659,33 @@ async function deployAgent() {
           <button className={activePage === "assets" ? "active" : ""} onClick={() => setActivePage("assets")}>Asset Details</button>
           <button className={activePage === "collectors" ? "active" : ""} onClick={() => setActivePage("collectors")}>Collectors</button>
           <button className={activePage === "changelog" ? "active" : ""} onClick={() => setActivePage("changelog")}>Changelog</button>
+          {canManageUsers && (
+            <button className={activePage === "users" ? "active" : ""} onClick={() => setActivePage("users")}>Users</button>
+          )}
+          {canReviewAccess && (
+            <button className={activePage === "access-reviews" ? "active" : ""} onClick={() => setActivePage("access-reviews")}>Access Reviews</button>
+          )}
         </div>
 
 
 {activePage === "iam" && (
-  <IAM />
+  <IAM canCollect={canManage} />
+)}
+
+{activePage === "users" && canManageUsers && (
+  <UserManagement currentUser={currentUser} />
+)}
+
+{activePage === "access-reviews" && canReviewAccess && (
+  <AccessReviews currentUser={currentUser} canManage={canManageAccessReviews} />
 )}
 
 {activePage === "dashboard" && (
         <>
         <Section title={`Assets (${assets.length})`}>
-          <div className="section-actions">
+          {canManage && <div className="section-actions">
             <button onClick={() => openAgentModal("deploy")}>Deploy Agent</button>
-          </div>
+          </div>}
 
           <DataTable
             columns={[
@@ -1595,7 +1696,7 @@ async function deployAgent() {
               { key: "asset_roles", label: "Server Classifications", render: r => renderBadgeList(r.asset_roles || []) },
               { key: "data_classification", label: "Data Classification", render: r => renderBadgeList(r.data_classification || []) },
               { key: "agent_status", label: "Agent Status" },
-              { key: "actions", label: "Actions", render: r => (
+              ...(canManage ? [{ key: "actions", label: "Actions", render: r => (
                 <select
                   className="asset-action-select"
                   defaultValue=""
@@ -1615,7 +1716,7 @@ async function deployAgent() {
                   <option value="upgrade">Upgrade Agent</option>
                   <option value="remove">Remove Agent</option>
                 </select>
-              ) }
+              ) }] : [])
             ]}
             rows={assets}
           />
@@ -1646,18 +1747,10 @@ async function deployAgent() {
         </Section>
 
         <Section title={`Current Findings (${findings.length})`}>
-          {Object.entries(groupByAsset(findings)).map(([asset, items]) => (
-            <button
-              key={asset}
-              style={{ display: "block", marginBottom: "10px" }}
-              onClick={() => {
-                setModalTitle(`Findings for ${asset}`);
-                setModalData(items);
-              }}
-            >
-              {asset} ({items.length})
-            </button>
-          ))}
+          <GroupedRecords rows={findings} noun="Findings" onOpen={(asset, items) => {
+            setModalTitle(`Findings for ${asset}`);
+            setModalData(items);
+          }} />
         </Section>
 
 
@@ -1709,22 +1802,14 @@ async function deployAgent() {
         )}
 
         <Section title={`Current Evidence (${evidence.length})`}>
-          {Object.entries(groupByAsset(evidence)).map(([asset, items]) => (
-            <button
-              key={asset}
-              style={{ display: "block", marginBottom: "10px" }}
-              onClick={() => {
-                setModalTitle(`Evidence for ${asset}`);
-                setModalData(items);
-              }}
-            >
-              {asset} ({items.length})
-            </button>
-          ))}
+          <GroupedRecords rows={evidence} noun="Evidence" onOpen={(asset, items) => {
+            setModalTitle(`Evidence for ${asset}`);
+            setModalData(items);
+          }} />
         </Section>
 
         <Section title={`Policies (${policies.length})`}>
-          <div className="policy-upload-modal-panel">
+          {canManage && <div className="policy-upload-modal-panel">
             <div className="policy-upload-field">
               <label>Policy Document</label>
               <input
@@ -1748,7 +1833,7 @@ async function deployAgent() {
                 Upload Policy / Select Control Mappings
               </button>
             </div>
-          </div>
+          </div>}
 
           <DataTable
             columns={[
@@ -1779,8 +1864,8 @@ async function deployAgent() {
                   <option value="" disabled>Choose action</option>
                   <option value="details">View Details</option>
                   <option value="download">Download</option>
-                  <option value="edit">Edit Mappings</option>
-                  <option value="remove">Remove</option>
+                  {canManage && <option value="edit">Edit Mappings</option>}
+                  {canManage && <option value="remove">Remove</option>}
                 </select>
               ) }
             ]}
@@ -1789,7 +1874,7 @@ async function deployAgent() {
         </Section>
 
         <Section title={`Documents (${documents.length})`}>
-          <div className="policy-upload-modal-panel">
+          {canManage && <div className="policy-upload-modal-panel">
             <div className="policy-upload-field">
               <label>Supporting Document</label>
               <input
@@ -1813,7 +1898,7 @@ async function deployAgent() {
                 Upload Document / Select Control Mappings
               </button>
             </div>
-          </div>
+          </div>}
 
           <DataTable
             columns={[
@@ -1841,8 +1926,8 @@ async function deployAgent() {
                   <option value="" disabled>Choose action</option>
                   <option value="details">View Details</option>
                   <option value="download">Download</option>
-                  <option value="edit">Edit Mappings</option>
-                  <option value="remove">Remove</option>
+                  {canManage && <option value="edit">Edit Mappings</option>}
+                  {canManage && <option value="remove">Remove</option>}
                 </select>
               ) }
             ]}
@@ -1978,16 +2063,16 @@ async function deployAgent() {
                     label: "Actions",
                     render: (r) => (
                       <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                        <button
+                        {canManage && <button
                           onClick={() => {
                             setModalTitle(`Asset Details: ${r.asset_id}`);
                             setModalData(r.packages || []);
                           }}
                         >
                           Packages
-                        </button>
+                        </button>}
 
-                        <button
+                        {canManage && <button
                           disabled={(r.packages_with_updates || 0) === 0}
                           style={{
                             opacity: (r.packages_with_updates || 0) > 0 ? 1 : 0.4,
@@ -1996,9 +2081,9 @@ async function deployAgent() {
                           onClick={() => requestBulkPackageUpdate(r.asset_id, false)}
                         >
                           Update All Except Held
-                        </button>
+                        </button>}
 
-                        <button
+                        {canManage && <button
                           disabled={(r.packages_with_updates || 0) === 0}
                           style={{
                             opacity: (r.packages_with_updates || 0) > 0 ? 1 : 0.4,
@@ -2007,7 +2092,7 @@ async function deployAgent() {
                           onClick={() => requestBulkPackageUpdate(r.asset_id, true)}
                         >
                           Update All Including Held
-                        </button>
+                        </button>}
                       </div>
                     )
                   }
@@ -2025,27 +2110,44 @@ async function deployAgent() {
 
         {activePage === "changelog" && (
           <Section title={`Changelog (${changelogEvents.length})`}>
+            <div className="table-toolbar">
+              <input type="search" value={changelogQuery} onChange={event => setChangelogQuery(event.target.value)} placeholder="Search changelog" />
+              <span className="muted">{changelogTable.filteredRows.length} of {changelogEvents.length}</span>
+              {canExportAuditData && <button className="secondary" disabled={!changelogEvents.length} onClick={() => downloadCsv(
+                "changelog.csv",
+                [
+                  { key: "timestamp", label: "Timestamp" },
+                  { key: "event_type", label: "Event Type" },
+                  { key: "asset_id", label: "Asset" },
+                  { key: "summary", label: "Summary" },
+                  { key: "note", label: "Note" },
+                  { key: "jira_url", label: "Jira Ticket" }
+                ],
+                changelogTable.sortedRows
+              )}>Export Filtered CSV</button>}
+            </div>
+            {canExportAuditData && <div className="section-actions">
+              <a
+                href={`${API}/api/changelog/user-group-export`}
+                download="user-group-changes.csv"
+              >
+                Export User/Group Changes
+              </a>
+            </div>}
+
             <table>
               <thead>
-                <tr>
-                  <th>Timestamp</th>
-                  <th>Event Type</th>
-                  <th>Asset</th>
-                  <th>Summary</th>
-                  <th>Note</th>
-                  <th>Jira Ticket</th>
-                  <th>Actions</th>
-                </tr>
+                <tr>{CHANGELOG_COLUMNS.map(column => <SortableHeader key={column.key} column={column} sort={changelogTable.sort} onSort={changelogTable.toggleSort} />)}</tr>
               </thead>
               <tbody>
-                {changelogEvents.length === 0 ? (
+                {changelogTable.filteredRows.length === 0 ? (
                   <tr>
                     <td colSpan="7">
                       No changelog events recorded.
                     </td>
                   </tr>
                 ) : (
-                  changelogEvents.map((event, idx) => {
+                  changelogTable.pagedRows.map((event, idx) => {
                     const draft =
                       changelogNoteDrafts[event.event_id]
                       || {
@@ -2055,12 +2157,12 @@ async function deployAgent() {
 
                     return (
                       <tr key={event.event_id || idx}>
-                        <td>{event.timestamp || "-"}</td>
+                        <td>{formatDateTime(event.timestamp, "-")}</td>
                         <td>{event.event_type || "-"}</td>
                         <td>{event.asset_id || "-"}</td>
                         <td>{event.summary || "-"}</td>
                         <td>
-                          <textarea
+                          {canEditChangelog ? <textarea
                             value={draft.note}
                             maxLength={4000}
                             placeholder="Add an audit note"
@@ -2076,10 +2178,10 @@ async function deployAgent() {
                                 change.target.value
                               )
                             }
-                          />
+                          /> : (event.note || "-")}
                         </td>
                         <td>
-                          <input
+                          {canEditChangelog && <input
                             type="url"
                             value={draft.jira_url}
                             maxLength={2048}
@@ -2094,7 +2196,7 @@ async function deployAgent() {
                                 change.target.value
                               )
                             }
-                          />
+                          />}
 
                           {event.jira_url && (
                             <div style={{ marginTop: "6px" }}>
@@ -2109,14 +2211,14 @@ async function deployAgent() {
                           )}
                         </td>
                         <td>
-                          <button
+                          {canEditChangelog ? <button
                             disabled={!event.event_id}
                             onClick={() =>
                               saveChangelogNote(event)
                             }
                           >
                             Save
-                          </button>
+                          </button> : <span className="muted">Read only</span>}
                         </td>
                       </tr>
                     );
@@ -2124,6 +2226,7 @@ async function deployAgent() {
                 )}
               </tbody>
             </table>
+            <PaginationControls {...changelogTable} total={changelogTable.sortedRows.length} visibleCount={changelogTable.pagedRows.length} />
           </Section>
         )}
 
@@ -2153,7 +2256,7 @@ async function deployAgent() {
 
         )}
 
-        {activePage === "dashboard" && (
+        {activePage === "dashboard" && canManage && (
         <Section title="Chat">
           <textarea value={chatMessage} onChange={e => setChatMessage(e.target.value)} placeholder="Discuss assets, findings, evidence, or compliance..." />
           <button onClick={sendChat}>Send</button>
@@ -2162,7 +2265,7 @@ async function deployAgent() {
         )}
       </div>
 
-      {showDeployModal && (
+      {showDeployModal && canManage && (
         <div className="modal-backdrop">
           <div className="modal">
             <div className="modal-header">
@@ -2265,7 +2368,7 @@ async function deployAgent() {
         </div>
       )}
 
-      {mappingModal && (
+      {mappingModal && canManage && (
         <div className="modal-backdrop">
           <div className="modal large-modal">
             <div className="modal-header">
@@ -2338,7 +2441,7 @@ async function deployAgent() {
 
 
 
-      {bulkPackageUpdateConfirm && (
+      {bulkPackageUpdateConfirm && canManage && (
         <div style={{
           position: "fixed",
           top: 0,
@@ -2398,7 +2501,7 @@ async function deployAgent() {
       )}
 
 
-      {packageUpdateConfirm && (
+      {packageUpdateConfirm && canManage && (
         <div style={{
           position: "fixed",
           top: 0,
@@ -2573,7 +2676,7 @@ async function deployAgent() {
                       <td>{a.agent_current ? "Current" : "Outdated"}</td>
                       <td>{a.collector_manifest_version || "Missing"}</td>
                       <td>{a.collector_drift_detected === false ? "No Drift" : "Drift / Unknown"}</td>
-                      <td>{a.last_seen || "Never"}</td>
+                      <td>{formatDateTime(a.last_seen)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -2585,4 +2688,8 @@ async function deployAgent() {
   );
 }
 
-createRoot(document.getElementById("root")).render(<App />);
+createRoot(document.getElementById("root")).render(
+  <AuthGate>
+    {({ user, logout }) => <App currentUser={user} onLogout={logout} />}
+  </AuthGate>
+);

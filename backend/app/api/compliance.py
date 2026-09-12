@@ -16,7 +16,7 @@ FRAMEWORK_REQUIREMENTS = {
             "network_security": {"weight": 20, "controls": ["NS-01"], "evidence_types": ["open_ports", "listening_services", "firewall_status"]},
             "secure_configuration": {"weight": 15, "controls": ["CM-01"], "evidence_types": ["ssh_config", "packages", "docker_inventory"]},
             "vulnerability_management": {"weight": 20, "controls": ["VM-01"], "evidence_types": ["packages", "held_packages", "available_updates"]},
-            "access_control": {"weight": 20, "controls": ["AC-01", "AC-02"], "evidence_types": ["user_changes", "auth_success", "auth_failure", "sudo_activity", "ssh_config"]},
+            "access_control": {"weight": 20, "controls": ["AC-01", "AC-02"], "evidence_types": ["iam_users", "user_changes", "auth_success", "auth_failure", "sudo_activity", "ssh_config"]},
             "logging_monitoring": {"weight": 15, "controls": ["SI-01"], "evidence_types": ["auth_success", "auth_failure", "sudo_activity", "time_sync"]},
             "incident_response": {"weight": 10, "controls": ["IR-01", "CP-01"], "evidence_types": ["disk_usage"]},
         },
@@ -24,7 +24,7 @@ FRAMEWORK_REQUIREMENTS = {
     "soc2": {
         "label": "SOC 2",
         "requirements": {
-            "security_access": {"weight": 25, "controls": ["AC-01", "AC-02"], "evidence_types": ["user_changes", "auth_success", "auth_failure", "sudo_activity", "ssh_config"]},
+            "security_access": {"weight": 25, "controls": ["AC-01", "AC-02"], "evidence_types": ["iam_users", "user_changes", "auth_success", "auth_failure", "sudo_activity", "ssh_config"]},
             "security_monitoring": {"weight": 20, "controls": ["SI-01"], "evidence_types": ["auth_success", "auth_failure", "sudo_activity", "time_sync"]},
             "change_configuration": {"weight": 20, "controls": ["CM-01"], "evidence_types": ["ssh_config", "packages", "docker_inventory"]},
             "risk_vulnerability": {"weight": 20, "controls": ["VM-01"], "evidence_types": ["packages", "held_packages", "available_updates"]},
@@ -34,7 +34,7 @@ FRAMEWORK_REQUIREMENTS = {
     "nist_800_53": {
         "label": "NIST 800-53",
         "requirements": {
-            "access_control_ac": {"weight": 20, "controls": ["AC-01", "AC-02"], "evidence_types": ["user_changes", "auth_success", "auth_failure", "sudo_activity", "ssh_config"]},
+            "access_control_ac": {"weight": 20, "controls": ["AC-01", "AC-02"], "evidence_types": ["iam_users", "user_changes", "auth_success", "auth_failure", "sudo_activity", "ssh_config"]},
             "audit_accountability_au": {"weight": 20, "controls": ["SI-01"], "evidence_types": ["auth_success", "auth_failure", "sudo_activity", "time_sync"]},
             "configuration_management_cm": {"weight": 20, "controls": ["CM-01"], "evidence_types": ["ssh_config", "packages", "docker_inventory"]},
             "risk_assessment_ra_si": {"weight": 20, "controls": ["VM-01"], "evidence_types": ["packages", "held_packages", "available_updates"]},
@@ -45,7 +45,7 @@ FRAMEWORK_REQUIREMENTS = {
     "iso_27001": {
         "label": "ISO 27001",
         "requirements": {
-            "identity_access": {"weight": 20, "controls": ["AC-01", "AC-02"], "evidence_types": ["user_changes", "auth_success", "auth_failure", "sudo_activity", "ssh_config"]},
+            "identity_access": {"weight": 20, "controls": ["AC-01", "AC-02"], "evidence_types": ["iam_users", "user_changes", "auth_success", "auth_failure", "sudo_activity", "ssh_config"]},
             "logging_monitoring": {"weight": 15, "controls": ["SI-01"], "evidence_types": ["auth_success", "auth_failure", "sudo_activity", "time_sync"]},
             "technical_vulnerability": {"weight": 20, "controls": ["VM-01"], "evidence_types": ["packages", "held_packages", "available_updates"]},
             "configuration_management": {"weight": 15, "controls": ["CM-01"], "evidence_types": ["ssh_config", "packages", "docker_inventory"]},
@@ -56,7 +56,7 @@ FRAMEWORK_REQUIREMENTS = {
     "iso_27002": {
         "label": "ISO 27002",
         "requirements": {
-            "access_rights": {"weight": 18, "controls": ["AC-01", "AC-02"], "evidence_types": ["user_changes", "auth_success", "auth_failure", "sudo_activity", "ssh_config"]},
+            "access_rights": {"weight": 18, "controls": ["AC-01", "AC-02"], "evidence_types": ["iam_users", "user_changes", "auth_success", "auth_failure", "sudo_activity", "ssh_config"]},
             "event_logging_monitoring": {"weight": 18, "controls": ["SI-01"], "evidence_types": ["auth_success", "auth_failure", "sudo_activity", "time_sync"]},
             "vulnerability_management": {"weight": 20, "controls": ["VM-01"], "evidence_types": ["packages", "held_packages", "available_updates"]},
             "configuration_information": {"weight": 14, "controls": ["CM-01"], "evidence_types": ["ssh_config", "packages", "docker_inventory"]},

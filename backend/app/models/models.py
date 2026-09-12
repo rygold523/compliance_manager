@@ -157,3 +157,51 @@ class ScannerResult(Base):
     raw = Column(JSON, default=dict)
     imported_findings = Column(Integer, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class LocalUser(Base):
+    __tablename__ = "local_users"
+
+    id = Column(Integer, primary_key=True)
+    username = Column(String(128), unique=True, index=True, nullable=False)
+    display_name = Column(String(255), nullable=False)
+    password_hash = Column(Text, nullable=False)
+    role = Column(String(32), nullable=False, default="viewer")
+    enabled = Column(Boolean, nullable=False, default=True)
+    must_change_password = Column(Boolean, nullable=False, default=True)
+    failed_login_attempts = Column(Integer, nullable=False, default=0)
+    locked_until = Column(DateTime(timezone=True), nullable=True)
+    last_login_at = Column(DateTime(timezone=True), nullable=True)
+    inactivity_exempt = Column(Boolean, nullable=False, default=False)
+    inactivity_exemption_reason = Column(String(500), nullable=True)
+    password_changed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class AuthSession(Base):
+    __tablename__ = "auth_sessions"
+
+    id = Column(Integer, primary_key=True)
+    session_token_hash = Column(String(64), unique=True, index=True, nullable=False)
+    user_id = Column(Integer, index=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    expires_at = Column(DateTime(timezone=True), index=True, nullable=False)
+    last_seen_at = Column(DateTime(timezone=True), nullable=False)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class AuthAuditEvent(Base):
+    __tablename__ = "auth_audit_events"
+
+    id = Column(Integer, primary_key=True)
+    event_type = Column(String(64), index=True, nullable=False)
+    username = Column(String(128), index=True, nullable=True)
+    user_id = Column(Integer, index=True, nullable=True)
+    source_address = Column(String(128), nullable=True)
+    detail = Column(JSON, default=dict)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

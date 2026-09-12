@@ -7,6 +7,16 @@ class Settings(BaseSettings):
     evidence_root: str = "/app/evidence"
     public_backend_url: str = "http://localhost:8000"
 
+    auth_provider: str = "local"
+    auth_session_hours: int = 12
+    auth_cookie_name: str = "compliance_session"
+    auth_cookie_secure: bool = True
+    auth_cookie_samesite: str = "strict"
+    auth_max_failed_attempts: int = 5
+    auth_lockout_minutes: int = 15
+    auth_cors_origins: str = "http://localhost:3000"
+    auth_service_paths: str = "/api/health,/api/live,/api/ready,/api/iam/db-ingest,/api/windows-agent/ingest"
+
     remote_exec_enabled: bool = True
     remote_exec_user: str = "compliance-agent"
     remote_exec_key: str = "/home/aivuln/.ssh/aivuln_remote_exec"

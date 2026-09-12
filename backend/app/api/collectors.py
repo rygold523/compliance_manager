@@ -53,6 +53,7 @@ def run_collectors(payload: CollectorRunRequest, db: Session = Depends(get_db)):
         assets = [
             asset for asset in db.query(Asset).all()
             if "deployed" in ((asset.agent_status or "").lower())
+            and (asset.os_family or "").strip().lower() != "windows"
         ]
 
         if not assets:

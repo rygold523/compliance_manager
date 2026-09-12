@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from app.services.remote_executor import run_ssh_command
 
 COLLECTORS = {'iam_users': {'command': 'sudo /usr/local/lib/compliance/collectors/iam_users.py',
-               'control_ids': ['AC-01', 'AC-02', 'AC-07'],
+               'control_ids': ['AC-02', 'AC-01', 'AC-07'],
                'frameworks': {'pci_dss': ['7.2', '8.2', '8.3'],
                               'soc2': ['CC6.1', 'CC6.2'],
                               'nist_800_53': ['AC-2', 'IA-2', 'AC-6'],
@@ -179,6 +179,18 @@ COLLECTORS = {'iam_users': {'command': 'sudo /usr/local/lib/compliance/collector
 def run_collector(asset, collector_name: str) -> dict:
     if collector_name not in COLLECTORS:
         return {"collector": collector_name, "status": "failed", "error": "Unknown collector"}
+
+    if (getattr(asset, "os_family", "") or "").strip().lower() == "windows":
+        return {
+            "collector": collector_name,
+            "asset_id": asset.asset_id,
+            "collected_at": datetime.now(timezone.utc).isoformat(),
+            "status": "skipped",
+            "stderr": (
+                "Linux SSH collectors are not supported for Windows assets; "
+                "use the Windows agent collector payload."
+            ),
+        }
 
     spec = COLLECTORS[collector_name]
     result = run_ssh_command(host=asset.address, username=asset.ssh_user, command=spec["command"], timeout=120, port=asset.ssh_port or 22)

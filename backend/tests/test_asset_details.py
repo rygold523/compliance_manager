@@ -119,3 +119,93 @@ def test_asset_details_uses_bulk_latest_evidence_queries(tmp_path):
     cached = asset_details.list_asset_details(session)
     assert select_count == 2
     assert cached == response
+
+
+def test_asset_details_parses_windows_inventory(tmp_path):
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+
+    session.add(
+        Asset(
+            asset_id="windows-a",
+            hostname="WIN-TEST",
+            address="192.0.2.20",
+            environment="test",
+            agent_status="deployed",
+            os_family="windows",
+        )
+    )
+    session.flush()
+
+    payloads = {
+        "os_inventory": {
+            "os_name": "Microsoft Windows Server 2019 Standard",
+            "os_version": "10.0.17763",
+            "kernel_version": "10.0.17763 (Build 17763)",
+        },
+        "disk_usage": {
+            "cpu_cores": 8,
+            "memory_total_mb": 16384,
+            "disk_total": "100G",
+        },
+        "package_inventory": {
+            "packages": [
+                {
+                    "name": "Example Application",
+                    "installed_version": "1.0",
+                    "latest_candidate": "1.0",
+                    "update_available": "no",
+                    "held": "no",
+                }
+            ]
+        },
+        "available_updates": {
+            "query_succeeded": True,
+            "available_count": 3,
+            "updates": [],
+        },
+    }
+
+    for index, (collector, payload) in enumerate(
+        payloads.items(),
+        start=1,
+    ):
+        path = tmp_path / f"{collector}.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "collector": collector,
+                    "status": "completed",
+                    "validated": True,
+                    "raw": payload,
+                    **payload,
+                }
+            )
+        )
+        session.add(
+            Evidence(
+                evidence_id=f"EV-WIN-{index}",
+                asset_id="windows-a",
+                filename=path.name,
+                file_path=str(path),
+                source="windows_agent",
+                collector=collector,
+                validated=True,
+            )
+        )
+
+    session.commit()
+    asset_details._DETAIL_CACHE.update(state=None, response=None)
+
+    response = asset_details.list_asset_details(session)
+    result = response["assets"][0]
+
+    assert result["os_name"] == "Microsoft Windows Server 2019 Standard"
+    assert result["os_version"] == "10.0.17763"
+    assert result["kernel_version"] == "10.0.17763 (Build 17763)"
+    assert result["resources"]["cpu_cores"] == "8"
+    assert result["resources"]["memory_total_mb"] == "16384"
+    assert result["resources"]["disk_total"] == "100G"
+    assert result["package_count"] == 1
+    assert result["packages_with_updates"] == 3

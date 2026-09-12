@@ -14,3 +14,4 @@ reportlab==4.2.5
 PyYAML
 playwright
 pywinrm==0.5.0
+argon2-cffi==23.1.0
