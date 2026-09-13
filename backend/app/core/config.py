@@ -16,6 +16,13 @@ class Settings(BaseSettings):
     auth_lockout_minutes: int = 15
     auth_cors_origins: str = "http://localhost:3000"
     auth_service_paths: str = "/api/health,/api/live,/api/ready,/api/iam/db-ingest,/api/windows-agent/ingest"
+    auth_session_retention_days: int = 30
+    auth_audit_retention_days: int = 400
+    auth_retention_archive_root: str = "/app/evidence/retention/auth"
+    changelog_retention_days: int = 400
+    validated_evidence_retention_days: int = 400
+    unvalidated_evidence_retention_days: int = 400
+    evidence_retention_archive_root: str = "/app/evidence/retention/changelog-evidence-archives"
 
     remote_exec_enabled: bool = True
     remote_exec_user: str = "compliance-agent"
