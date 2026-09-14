@@ -2,6 +2,7 @@ from app.api import iam_db
 from app.api import auth
 from app.api import admin_users
 from app.api import access_reviews
+from app.api import assessments
 from app.api import role_dashboard
 from app.api import iam
 from app.api import role_collectors
@@ -66,6 +67,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(admin_users.router)
 app.include_router(access_reviews.router)
+app.include_router(assessments.router)
 
 app.include_router(assets_router, prefix="/api/assets", tags=["Assets"])
 app.include_router(findings_router, prefix="/api/findings", tags=["Findings"])

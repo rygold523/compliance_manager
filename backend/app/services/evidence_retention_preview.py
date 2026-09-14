@@ -17,6 +17,7 @@ from app.api.changelog import (
 )
 from app.auth.service import audit
 from app.models.models import Approval, Evidence, Finding
+from app.services.assessment_evidence import active_assessment_evidence_ids
 
 
 PREVIEW_EVENT_TYPE = "changelog_evidence_retention_previewed"
@@ -179,6 +180,7 @@ def _evidence_entry(
     holds: dict[str, set[str]],
     evidence_root: Path,
     duplicate_paths: set[str],
+    active_assessment_links: set[str],
 ) -> dict:
     reasons = []
     if row.id in current_ids:
@@ -187,6 +189,8 @@ def _evidence_entry(
         reasons.append("active_finding")
     if row.finding_id and row.finding_id in pending_approval_findings:
         reasons.append("pending_approval")
+    if row.evidence_id in active_assessment_links:
+        reasons.append("active_assessment")
     if row.evidence_id in holds["evidence_ids"]:
         reasons.append("legal_hold_evidence")
     if row.finding_id and row.finding_id in holds["finding_ids"]:
@@ -300,6 +304,7 @@ def build_preview(
     }
     path_counts = Counter(row.file_path for row in rows)
     duplicate_paths = {path for path, count in path_counts.items() if count > 1}
+    active_assessment_links = active_assessment_evidence_ids(db)
 
     evidence_entries = []
     for row in rows:
@@ -316,6 +321,7 @@ def build_preview(
                     holds,
                     evidence_root,
                     duplicate_paths,
+                    active_assessment_links,
                 )
             )
 
@@ -384,7 +390,6 @@ def build_preview(
         "candidates": candidates,
         "protected": protected,
         "dependency_check_limitations": [
-            "The current schema has no persistent assessment-to-evidence relationship table.",
             "Generated reports are not persistently indexed to evidence records.",
             "Active incident relationships are not represented in the current database schema.",
             "Use the legal-hold inventory to protect records affected by these limitations.",

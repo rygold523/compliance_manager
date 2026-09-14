@@ -1,4 +1,7 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, JSON
+from sqlalchemy import (
+    Boolean, CheckConstraint, Column, DateTime, ForeignKey, Integer, JSON,
+    String, Text, UniqueConstraint,
+)
 from sqlalchemy.sql import func
 from app.core.database import Base
 
@@ -83,6 +86,49 @@ class Evidence(Base):
     frameworks = Column(JSON, default=dict)
     validated = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class Assessment(Base):
+    __tablename__ = "assessments"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('planned', 'in_progress', 'completed', 'closed', 'cancelled')",
+            name="ck_assessments_status",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True)
+    assessment_id = Column(String(128), unique=True, index=True, nullable=False)
+    name = Column(String(255), nullable=False)
+    framework = Column(String(64), index=True, nullable=True)
+    status = Column(String(32), index=True, nullable=False, default="planned")
+    owner = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    starts_at = Column(DateTime(timezone=True), nullable=True)
+    ends_at = Column(DateTime(timezone=True), nullable=True)
+    created_by = Column(String(128), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class AssessmentEvidence(Base):
+    __tablename__ = "assessment_evidence"
+    __table_args__ = (
+        UniqueConstraint("assessment_id", "evidence_id", name="uq_assessment_evidence_pair"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    assessment_id = Column(
+        String(128), ForeignKey("assessments.assessment_id", ondelete="RESTRICT"),
+        index=True, nullable=False,
+    )
+    evidence_id = Column(
+        String(128), ForeignKey("evidence.evidence_id", ondelete="RESTRICT"),
+        index=True, nullable=False,
+    )
+    linked_by = Column(String(128), nullable=False)
+    rationale = Column(Text, nullable=True)
+    linked_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 class RemoteJob(Base):
