@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pathlib import Path
 from collections import defaultdict
@@ -690,7 +690,7 @@ def collect_report_artifacts(framework):
 
 
 @router.get("/{framework}/package")
-def download_report_package(framework: str):
+def download_report_package(framework: str, request: Request):
     framework = normalize_framework(framework)
     artifacts = collect_report_artifacts(framework)
 
@@ -748,10 +748,25 @@ def download_report_package(framework: str):
                         json.dumps(ev, indent=2, sort_keys=True),
                     )
 
+        package_bytes = zip_path.read_bytes()
+        from app.core.database import SessionLocal
+        from app.services.generated_reports import register_report
+
+        actor = getattr(getattr(request.state, "auth_user", None), "username", "system")
+        evidence_ids = [
+            item["evidence_id"] for item in artifacts["evidence"] if item.get("evidence_id")
+        ]
+        with SessionLocal() as db:
+            report = register_report(
+                db, report_type="evidence_package", framework=framework, actor=actor,
+                content=package_bytes, extension="zip", evidence_ids=evidence_ids,
+            )
+        shutil.rmtree(tmpdir, ignore_errors=True)
         return FileResponse(
-            zip_path,
+            report.file_path,
             filename=f"{framework}_evidence_package.zip",
             media_type="application/zip",
+            headers={"X-Generated-Report-ID": report.report_id},
         )
     except Exception:
         shutil.rmtree(tmpdir, ignore_errors=True)

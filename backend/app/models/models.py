@@ -131,6 +131,45 @@ class AssessmentEvidence(Base):
     linked_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class GeneratedReport(Base):
+    __tablename__ = "generated_reports"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('draft', 'current', 'issued', 'superseded', 'revoked')",
+            name="ck_generated_reports_status",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True)
+    report_id = Column(String(128), unique=True, index=True, nullable=False)
+    report_type = Column(String(64), index=True, nullable=False)
+    framework = Column(String(64), index=True, nullable=False)
+    status = Column(String(32), index=True, nullable=False, default="current")
+    generated_at = Column(DateTime(timezone=True), server_default=func.now())
+    created_by = Column(String(128), nullable=False)
+    file_path = Column(String(1024), nullable=False)
+    sha256 = Column(String(64), nullable=False)
+    size_bytes = Column(Integer, nullable=False)
+
+
+class GeneratedReportEvidence(Base):
+    __tablename__ = "generated_report_evidence"
+    __table_args__ = (
+        UniqueConstraint("report_id", "evidence_id", name="uq_generated_report_evidence_pair"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    report_id = Column(
+        String(128), ForeignKey("generated_reports.report_id", ondelete="RESTRICT"),
+        index=True, nullable=False,
+    )
+    evidence_id = Column(
+        String(128), ForeignKey("evidence.evidence_id", ondelete="RESTRICT"),
+        index=True, nullable=False,
+    )
+    linked_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class RemoteJob(Base):
     __tablename__ = "remote_jobs"
 
