@@ -64,3 +64,13 @@ backend-backups/
 frontend-backups/
 deployment-backups/
 *.pre-*
+
+# Local repository maintenance artifacts
+backups/
+*.tar.gz
+*.tmp
+dist/
+build/
+
+# Local backups and packaged update artifacts
+.env.pre-*
