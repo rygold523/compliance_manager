@@ -15,11 +15,23 @@ from app.services.evidence_finding_analyzer import analyze_all_evidence
 from app.models import Evidence, CollectorRun
 from app.core.config import settings
 from app.api.changelog import write_changelog
+from app.services.windows_agent_credentials import (
+    issue_credential,
+    revoke_credential,
+    revoke_other_credentials,
+)
 
 from pathlib import Path
 import json
 
 router = APIRouter()
+
+
+def provision_windows_credential(db: Session, os_family: str, asset_id: str):
+    if os_family.strip().lower() != "windows":
+        return None, "", ""
+    record, token = issue_credential(db, asset_id)
+    return record, token, record.credential_id
 
 
 def run_initial_collection(db: Session, asset: Asset):
@@ -129,6 +141,57 @@ def deploy(payload: AgentDeployRequest, db: Session = Depends(get_db)):
     db.add(record)
     db.commit()
 
+    staged_windows_asset = None
+    if payload.os_family.strip().lower() == "windows":
+        staged_windows_asset = db.query(Asset).filter(
+            Asset.asset_id == payload.asset_id
+        ).one_or_none()
+        if staged_windows_asset is None:
+            staged_windows_asset = Asset(
+                asset_id=payload.asset_id,
+                hostname=payload.hostname,
+                address=payload.address,
+                environment=payload.environment,
+                role=payload.role,
+                asset_roles=normalize_asset_roles(
+                    getattr(payload, "asset_roles", [])
+                ),
+                data_classification=getattr(payload, "data_classification", []),
+                os_family="windows",
+                access_method="winrm",
+                ssh_user="",
+                ssh_port=payload.port,
+                approval_tier=(
+                    "production"
+                    if payload.environment == "production"
+                    else "nonproduction"
+                ),
+                compliance_scope=payload.compliance_scope,
+                allowed_actions={
+                    "collect_inventory": True,
+                    "collect_logs": True,
+                    "collect_nginx_config": True,
+                    "check_packages": True,
+                    "update_unheld_packages": "approval_required",
+                    "stage_nginx_config": "approval_required",
+                    "apply_nginx_config": "approval_required",
+                    "service_reload": "approval_required",
+                    "docker_image_rebuilds": False,
+                },
+                blocked_actions=[
+                    "docker_image_rebuilds",
+                    "destructive_commands",
+                    "direct_database_changes",
+                    "arbitrary_shell",
+                ],
+                agent_status="deploying",
+            )
+            db.add(staged_windows_asset)
+            db.commit()
+
+    credential, ingest_token, credential_id = provision_windows_credential(
+        db, payload.os_family, payload.asset_id
+    )
     result = deploy_agent(
         address=payload.address,
         username=deployment_username(
@@ -141,12 +204,21 @@ def deploy(payload: AgentDeployRequest, db: Session = Depends(get_db)):
         os_family=payload.os_family,
         asset_id=payload.asset_id,
         backend_url=settings.public_backend_url,
+        ingest_token=(ingest_token or settings.windows_agent_ingest_token),
+        credential_id=credential_id,
     )
 
     record.status = result["status"]
     record.output = str(result.get("output", ""))
 
     if result.get("status") != "deployed":
+        if credential is not None:
+            revoke_credential(db, credential.credential_id)
+        if (
+            staged_windows_asset is not None
+            and staged_windows_asset.agent_status == "deploying"
+        ):
+            db.delete(staged_windows_asset)
         db.commit()
 
         return {
@@ -229,6 +301,9 @@ def deploy(payload: AgentDeployRequest, db: Session = Depends(get_db)):
 
     db.commit()
     db.refresh(existing)
+
+    if credential is not None:
+        revoke_other_credentials(db, payload.asset_id, credential.credential_id)
 
     deployment_succeeded = (
         "deployed"
@@ -364,6 +439,9 @@ def upgrade_agent(asset_id: str, payload: AgentDeployRequest, db: Session = Depe
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
 
+    credential, ingest_token, credential_id = provision_windows_credential(
+        db, payload.os_family, asset.asset_id
+    )
     result = deploy_agent(
         address=payload.address,
         username=deployment_username(
@@ -374,8 +452,10 @@ def upgrade_agent(asset_id: str, payload: AgentDeployRequest, db: Session = Depe
         password=payload.password,
         port=payload.port,
         os_family=payload.os_family,
-        asset_id=payload.asset_id,
+        asset_id=asset.asset_id,
         backend_url=settings.public_backend_url,
+        ingest_token=(ingest_token or settings.windows_agent_ingest_token),
+        credential_id=credential_id,
     )
 
     asset.hostname = payload.hostname
@@ -418,6 +498,12 @@ def upgrade_agent(asset_id: str, payload: AgentDeployRequest, db: Session = Depe
             result.get("status", "")
         ).lower()
     )
+
+    if credential is not None:
+        if upgrade_succeeded:
+            revoke_other_credentials(db, asset.asset_id, credential.credential_id)
+        else:
+            revoke_credential(db, credential.credential_id)
 
     if upgrade_succeeded:
         write_changelog(
@@ -506,7 +592,10 @@ def remove_agent(asset_id: str, db: Session = Depends(get_db)):
     result = run_ssh_command(
         host=asset.address,
         username=asset.ssh_user,
-        command="sudo userdel compliance-agent",
+        command=(
+            "sudo /usr/local/sbin/"
+            "compliance-agent-command remove-agent"
+        ),
         port=asset.ssh_port or 22,
     )
 

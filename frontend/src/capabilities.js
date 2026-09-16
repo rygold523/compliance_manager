@@ -6,12 +6,14 @@ const ROLE_CAPABILITIES = Object.freeze({
     "edit_changelog",
     "manage_users",
     "review_access",
-    "manage_access_reviews"
+    "manage_access_reviews",
+    "view_iam"
   ]),
   auditor: new Set([
     "generate_reports",
     "export_audit_data",
-    "review_access"
+    "review_access",
+    "view_iam"
   ]),
   viewer: new Set()
 });

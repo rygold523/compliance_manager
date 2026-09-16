@@ -152,7 +152,7 @@ def upgrade_package(
 
     command = (
         f"sudo {PACKAGE_MANAGER_PATH} "
-        f"{action} {package}"
+        f"manage-packages {action} {package}"
     )
 
     result = run_ssh_command(

@@ -1,14 +1,13 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 import json
-import paramiko
-
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.models.models import Asset, Evidence
 from app.services.role_collector_profiles import collector_plan_for_asset
+from app.services.ssh_host_keys import configured_ssh_client
 
 router = APIRouter(prefix="/api/role-collectors", tags=["role-collectors"])
 
@@ -25,8 +24,7 @@ def run_ssh_command(asset, command, password=None):
     username = asset.ssh_user or "compliance-agent"
     port = asset.ssh_port or 22
 
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client = configured_ssh_client()
 
     try:
         client.connect(

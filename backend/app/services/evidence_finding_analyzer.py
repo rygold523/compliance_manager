@@ -1,5 +1,6 @@
 from uuid import uuid4
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.models import Evidence, Finding
@@ -30,10 +31,16 @@ def _create_finding(
     severity: str,
     control_id: str,
     raw: dict,
+    known_finding_ids: set[str] | None = None,
 ):
     finding_id = f"EF-{evidence.evidence_id}-{finding_type}".replace("_", "-").upper()
 
+    if known_finding_ids is not None and finding_id in known_finding_ids:
+        return None
+
     if _existing_finding(db, finding_id):
+        if known_finding_ids is not None:
+            known_finding_ids.add(finding_id)
         return None
 
     mappings = get_framework_mappings(control_id)
@@ -56,10 +63,18 @@ def _create_finding(
     )
 
     db.add(finding)
+
+    if known_finding_ids is not None:
+        known_finding_ids.add(finding_id)
+
     return finding
 
 
-def analyze_evidence_record(db: Session, evidence: Evidence):
+def analyze_evidence_record(
+    db: Session,
+    evidence: Evidence,
+    known_finding_ids: set[str] | None = None,
+):
     created = []
 
     collector = evidence.collector or evidence.evidence_type or "unknown"
@@ -94,6 +109,7 @@ def analyze_evidence_record(db: Session, evidence: Evidence):
             severity=severity,
             control_id=control_id,
             raw=raw,
+            known_finding_ids=known_finding_ids,
         )
         if f:
             created.append(f)
@@ -113,6 +129,7 @@ def analyze_evidence_record(db: Session, evidence: Evidence):
             severity="medium",
             control_id="VM-01",
             raw=raw,
+            known_finding_ids=known_finding_ids,
         )
         if f:
             created.append(f)
@@ -131,6 +148,7 @@ def analyze_evidence_record(db: Session, evidence: Evidence):
             severity="low",
             control_id="VM-01",
             raw=raw,
+            known_finding_ids=known_finding_ids,
         )
         if f:
             created.append(f)
@@ -149,6 +167,7 @@ def analyze_evidence_record(db: Session, evidence: Evidence):
             severity="medium",
             control_id="AC-02",
             raw=raw,
+            known_finding_ids=known_finding_ids,
         )
         if f:
             created.append(f)
@@ -167,6 +186,7 @@ def analyze_evidence_record(db: Session, evidence: Evidence):
             severity="low",
             control_id="NS-01",
             raw=raw,
+            known_finding_ids=known_finding_ids,
         )
         if f:
             created.append(f)
@@ -185,6 +205,7 @@ def analyze_evidence_record(db: Session, evidence: Evidence):
             severity="informational",
             control_id="SI-01",
             raw=raw,
+            known_finding_ids=known_finding_ids,
         )
         if f:
             created.append(f)
@@ -193,11 +214,39 @@ def analyze_evidence_record(db: Session, evidence: Evidence):
 
 
 def analyze_all_evidence(db: Session):
+    bind = db.get_bind()
+
+    if bind.dialect.name == "postgresql":
+        db.execute(
+            text(
+                "SELECT pg_advisory_xact_lock("
+                "hashtext(:lock_name))"
+            ),
+            {
+                "lock_name": (
+                    "ai-vulnerability-management:"
+                    "evidence-finding-analyzer"
+                )
+            },
+        )
+
+    known_finding_ids = {
+        finding_id
+        for (finding_id,) in db.query(
+            Finding.finding_id
+        ).all()
+    }
     evidence_records = db.query(Evidence).all()
     created = []
 
     for evidence in evidence_records:
-        created.extend(analyze_evidence_record(db, evidence))
+        created.extend(
+            analyze_evidence_record(
+                db,
+                evidence,
+                known_finding_ids=known_finding_ids,
+            )
+        )
 
     db.commit()
 

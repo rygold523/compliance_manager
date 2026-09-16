@@ -3,24 +3,23 @@ import subprocess
 
 
 PACKAGE_MANAGER_PATH = (
-    "/usr/local/lib/compliance/collectors/"
-    "package_manager.py"
+    "/usr/local/sbin/compliance-agent-command"
 )
 
 BULK_INCLUDE_HELD_COMMAND = (
     f"sudo {PACKAGE_MANAGER_PATH} "
-    "upgrade-all-including-held"
+    "manage-packages upgrade-all-including-held"
 )
 
 BULK_EXCLUDE_HELD_COMMAND = (
     f"sudo {PACKAGE_MANAGER_PATH} "
-    "upgrade-all"
+    "manage-packages upgrade-all"
 )
 
 ALLOWED_EXACT_COMMANDS = {
     BULK_INCLUDE_HELD_COMMAND,
     BULK_EXCLUDE_HELD_COMMAND,
-    "sudo userdel compliance-agent",
+    f"sudo {PACKAGE_MANAGER_PATH} remove-agent",
     "dpkg -l",
     "apt-mark showhold",
     (
@@ -34,13 +33,15 @@ ALLOWED_EXACT_COMMANDS = {
 
 ALLOWED_COMMAND_PATTERNS = [
     re.compile(
-        r"^sudo /usr/local/lib/compliance/"
-        r"collectors/[a-zA-Z0-9_-]+\.py$"
+        r"^sudo /usr/local/sbin/compliance-agent-command "
+        r"(?:collect-(?:agent-lifecycle|collector-health|disk-usage|"
+        r"docker-inventory|iam-users|listening-ports|os-inventory|"
+        r"package-inventory|user-changes|auth-success|auth-failure|"
+        r"sudo-activity|ssh-config|firewall-status)|remove-agent)$"
     ),
     re.compile(
-        r"^sudo /usr/local/lib/compliance/"
-        r"collectors/package_manager\.py "
-        r"(?:upgrade|upgrade-held) "
+        r"^sudo /usr/local/sbin/compliance-agent-command "
+        r"manage-packages (?:upgrade|upgrade-held) "
         r"[A-Za-z0-9][A-Za-z0-9+_.:-]*$"
     ),
 ]

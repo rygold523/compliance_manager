@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.models import Evidence
+from app.auth.dependencies import require_roles
 
 router = APIRouter(prefix="/api/iam", tags=["iam"])
 
@@ -308,18 +309,27 @@ def _get_snapshot(db: Session | None = None) -> dict[str, Any]:
 
 
 @router.get("/snapshot")
-def snapshot(db: Session = Depends(get_db)):
+def snapshot(
+    db: Session = Depends(get_db),
+    _reviewer=Depends(require_roles("admin", "auditor")),
+):
     """Return all IAM views from one consistent evidence snapshot."""
     return deepcopy(_get_snapshot(db))
 
 
 @router.get("/users")
-def users(db: Session = Depends(get_db)):
+def users(
+    db: Session = Depends(get_db),
+    _reviewer=Depends(require_roles("admin", "auditor")),
+):
     return {"users": deepcopy(_get_snapshot(db)["users"])}
 
 
 @router.get("/service-accounts")
-def service_accounts(db: Session = Depends(get_db)):
+def service_accounts(
+    db: Session = Depends(get_db),
+    _reviewer=Depends(require_roles("admin", "auditor")),
+):
     return {
         "service_accounts": deepcopy(
             _get_snapshot(db)["service_accounts"]
@@ -328,15 +338,24 @@ def service_accounts(db: Session = Depends(get_db)):
 
 
 @router.get("/access-matrix")
-def access_matrix(db: Session = Depends(get_db)):
+def access_matrix(
+    db: Session = Depends(get_db),
+    _reviewer=Depends(require_roles("admin", "auditor")),
+):
     return deepcopy(_get_snapshot(db)["access_matrix"])
 
 
 @router.get("/group-matrix")
-def group_matrix(db: Session = Depends(get_db)):
+def group_matrix(
+    db: Session = Depends(get_db),
+    _reviewer=Depends(require_roles("admin", "auditor")),
+):
     return deepcopy(_get_snapshot(db)["group_matrix"])
 
 
 @router.get("/service-account-matrix")
-def service_account_matrix(db: Session = Depends(get_db)):
+def service_account_matrix(
+    db: Session = Depends(get_db),
+    _reviewer=Depends(require_roles("admin", "auditor")),
+):
     return deepcopy(_get_snapshot(db)["service_account_matrix"])

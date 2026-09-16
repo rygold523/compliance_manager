@@ -1,16 +1,19 @@
 from datetime import datetime, timezone
+import hmac
 import json
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
 from app.models import Asset, CollectorRun, Evidence
+from app.services.path_security import contained_path
+from app.services.windows_agent_credentials import verify_credential
 
 
 router = APIRouter(
@@ -159,7 +162,7 @@ def build_evidence_output(
         "os_family": payload.os_family,
         "collected_at": payload.collected_at,
         "status": result.status,
-        "validated": result.validated,
+        "validated": server_validated(result),
         "raw": result.raw,
     }
 
@@ -169,11 +172,76 @@ def build_evidence_output(
     return output
 
 
+def server_validated(result: WindowsCollectorResult) -> bool:
+    return result.status.strip().lower() in {
+        "completed", "healthy", "present", "success",
+    }
+
+
+def validate_windows_agent_token(token: str | None) -> None:
+    expected_token = settings.windows_agent_ingest_token
+
+    if token:
+        if not expected_token or not hmac.compare_digest(token, expected_token):
+            raise HTTPException(status_code=401, detail="Invalid Windows agent token.")
+        return
+
+    if settings.windows_agent_ingest_enforce_auth:
+        if not expected_token:
+            raise HTTPException(
+                status_code=503,
+                detail="Windows agent ingestion is not configured.",
+            )
+        raise HTTPException(status_code=401, detail="Windows agent token required.")
+
+
+def validate_windows_agent_auth(
+    db: Session,
+    asset_id: str,
+    token: str | None,
+    credential_id: str | None,
+) -> str:
+    if credential_id:
+        if not token or verify_credential(db, credential_id, token, asset_id) is None:
+            raise HTTPException(status_code=401, detail="Invalid Windows agent credential.")
+        return "asset_credential"
+    if settings.windows_agent_legacy_auth_enabled:
+        validate_windows_agent_token(token)
+        return "legacy"
+    raise HTTPException(status_code=401, detail="Windows agent credential required.")
+
+
+class WindowsAgentAuthCheck(BaseModel):
+    asset_id: str = Field(min_length=1, max_length=128)
+
+
+@router.post("/auth-check")
+def check_windows_agent_auth(
+    payload: WindowsAgentAuthCheck,
+    x_windows_agent_token: str | None = Header(default=None),
+    x_windows_agent_credential_id: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    if not x_windows_agent_credential_id:
+        raise HTTPException(status_code=401, detail="Windows agent credential required.")
+    validate_windows_agent_auth(
+        db, payload.asset_id, x_windows_agent_token, x_windows_agent_credential_id
+    )
+    db.commit()
+    return {"status": "ok", "asset_id": payload.asset_id}
+
+
 @router.post("/ingest")
 def ingest_windows_agent(
     payload: WindowsAgentPayload,
+    x_windows_agent_token: str | None = Header(default=None),
+    x_windows_agent_credential_id: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ):
+    validate_windows_agent_auth(
+        db, payload.asset_id, x_windows_agent_token, x_windows_agent_credential_id
+    )
+
     asset = (
         db.query(Asset)
         .filter(Asset.asset_id == payload.asset_id)
@@ -208,12 +276,8 @@ def ingest_windows_agent(
                 result,
             )
 
-            run_status = (
-                "completed"
-                if result.status == "completed"
-                or result.validated
-                else "failed"
-            )
+            validated = server_validated(result)
+            run_status = "completed" if validated else "failed"
 
             db.add(
                 CollectorRun(
@@ -225,11 +289,14 @@ def ingest_windows_agent(
                 )
             )
 
-            evidence_dir = (
-                Path(settings.evidence_root)
-                / payload.asset_id
-                / collector_name
-            )
+            try:
+                evidence_dir = contained_path(
+                    settings.evidence_root,
+                    payload.asset_id,
+                    collector_name,
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail="Invalid asset path.") from exc
             evidence_dir.mkdir(
                 parents=True,
                 exist_ok=True,
@@ -263,7 +330,7 @@ def ingest_windows_agent(
                     collector=collector_name,
                     evidence_type=collector_name,
                     frameworks=mapping["frameworks"],
-                    validated=bool(result.validated),
+                    validated=validated,
                 )
             )
 
@@ -272,9 +339,7 @@ def ingest_windows_agent(
                     "collector": collector_name,
                     "run_id": run_id,
                     "evidence_id": evidence_id,
-                    "validated": bool(
-                        result.validated
-                    ),
+                    "validated": validated,
                 }
             )
 

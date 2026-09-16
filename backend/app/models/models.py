@@ -30,6 +30,19 @@ class Asset(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class WindowsAgentCredential(Base):
+    __tablename__ = "windows_agent_credentials"
+
+    id = Column(Integer, primary_key=True)
+    credential_id = Column(String(128), unique=True, index=True, nullable=False)
+    asset_id = Column(String(128), index=True, nullable=False)
+    token_hash = Column(String(64), nullable=False)
+    status = Column(String(32), nullable=False, default="active")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+
+
 class Finding(Base):
     __tablename__ = "findings"
 

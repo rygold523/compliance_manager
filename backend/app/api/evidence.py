@@ -13,6 +13,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.services.path_security import contained_path
 from app.core.database import get_db
 from app.models import Evidence
 
@@ -156,11 +157,14 @@ async def upload_evidence(
     safe_name = Path(
         file.filename or "evidence.bin"
     ).name
-    target_dir = (
-        Path(settings.evidence_root)
-        / (asset_id or "manual")
-        / (control_id or "unmapped")
-    )
+    try:
+        target_dir = contained_path(
+            settings.evidence_root,
+            asset_id or "manual",
+            control_id or "unmapped",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid evidence path.") from exc
     target_dir.mkdir(
         parents=True,
         exist_ok=True,

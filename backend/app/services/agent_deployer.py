@@ -1,10 +1,13 @@
 import base64
+import hashlib
 
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
-import paramiko
 import winrm
+
+from app.services.ssh_host_keys import configured_ssh_client
 
 
 PUBLIC_KEY_PATH = Path(
@@ -13,6 +16,10 @@ PUBLIC_KEY_PATH = Path(
 
 WINDOWS_BOOTSTRAP_PATH = Path(
     "/app/scripts/bootstrap_windows_managed_target.ps1"
+)
+
+LINUX_COMMAND_DISPATCHER_PATH = Path(
+    "/app/scripts/compliance_agent_command.py"
 )
 
 
@@ -53,6 +60,34 @@ def deploy_linux_agent(
 ) -> dict:
     public_key = get_public_key()
 
+    if not LINUX_COMMAND_DISPATCHER_PATH.exists():
+        return {
+            "status": "failed",
+            "output": [
+                _command_result(
+                    command="Load Linux command dispatcher",
+                    exit_code=1,
+                    stdout="",
+                    stderr=(
+                        "Missing Linux command dispatcher: "
+                        f"{LINUX_COMMAND_DISPATCHER_PATH}"
+                    ),
+                )
+            ],
+        }
+
+    dispatcher_b64 = base64.b64encode(
+        LINUX_COMMAND_DISPATCHER_PATH.read_bytes()
+    ).decode("ascii")
+    sudoers_text = (
+        "Defaults:compliance-agent !requiretty\n"
+        "compliance-agent ALL=(root) NOPASSWD: "
+        "/usr/local/sbin/compliance-agent-command *\n"
+    )
+    sudoers_b64 = base64.b64encode(
+        sudoers_text.encode("utf-8")
+    ).decode("ascii")
+
     commands = [
         (
             "sudo useradd -m -s /bin/bash "
@@ -88,28 +123,41 @@ def deploy_linux_agent(
             "/home/compliance-agent/.ssh/"
             "authorized_keys"
         ),
-        """cat <<'EOF' | sudo tee /etc/sudoers.d/compliance-agent >/dev/null
-compliance-agent ALL=(root) NOPASSWD: /usr/bin/hostnamectl, /usr/bin/lsb_release, /usr/bin/uname, /usr/bin/uptime, /usr/bin/df, /usr/bin/free, /usr/bin/ip, /usr/bin/ss
-compliance-agent ALL=(root) NOPASSWD: /usr/bin/apt-mark, /usr/bin/apt-cache, /usr/bin/apt, /usr/bin/apt-get, /usr/bin/dpkg, /usr/bin/timedatectl
-compliance-agent ALL=(root) NOPASSWD: /usr/sbin/nginx, /bin/systemctl status nginx, /bin/systemctl reload nginx
-compliance-agent ALL=(root) NOPASSWD: /usr/bin/journalctl, /usr/bin/tail, /usr/bin/grep, /usr/bin/zgrep, /usr/bin/find, /usr/bin/cat
-compliance-agent ALL=(root) NOPASSWD: /usr/sbin/ufw status, /usr/sbin/ufw status verbose, /usr/sbin/nft list ruleset, /usr/sbin/iptables -S, /usr/bin/docker ps
-EOF""",
+        "sudo install -d -o root -g root -m 0755 /usr/local/sbin",
         (
-            "sudo chmod 440 "
+            f"printf '%s' '{dispatcher_b64}' | base64 -d | "
+            "sudo tee /usr/local/sbin/.compliance-agent-command.new "
+            ">/dev/null"
+        ),
+        (
+            "sudo chown root:root "
+            "/usr/local/sbin/.compliance-agent-command.new && "
+            "sudo chmod 0755 "
+            "/usr/local/sbin/.compliance-agent-command.new && "
+            "sudo /usr/bin/python3 -m py_compile "
+            "/usr/local/sbin/.compliance-agent-command.new && "
+            "sudo mv -f /usr/local/sbin/.compliance-agent-command.new "
+            "/usr/local/sbin/compliance-agent-command"
+        ),
+        (
+            f"printf '%s' '{sudoers_b64}' | base64 -d | "
+            "sudo tee /etc/sudoers.d/.compliance-agent.new >/dev/null"
+        ),
+        (
+            "sudo chown root:root /etc/sudoers.d/.compliance-agent.new && "
+            "sudo chmod 0440 /etc/sudoers.d/.compliance-agent.new && "
+            "sudo visudo -cf /etc/sudoers.d/.compliance-agent.new && "
+            "sudo mv -f /etc/sudoers.d/.compliance-agent.new "
             "/etc/sudoers.d/compliance-agent"
         ),
         (
-            "sudo visudo -cf "
-            "/etc/sudoers.d/compliance-agent"
+            "sudo rm -f /etc/sudoers.d/compliance-agent-collectors && "
+            "sudo visudo -cf /etc/sudoers"
         ),
         "hostname",
     ]
 
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(
-        paramiko.AutoAddPolicy()
-    )
+    client = configured_ssh_client()
 
     output = []
 
@@ -179,6 +227,8 @@ def deploy_windows_agent(
     port: int,
     asset_id: str,
     backend_url: str,
+    ingest_token: str,
+    credential_id: str,
 ) -> dict:
     if not WINDOWS_BOOTSTRAP_PATH.exists():
         return {
@@ -201,6 +251,10 @@ def deploy_windows_agent(
     bootstrap_bytes = (
         WINDOWS_BOOTSTRAP_PATH.read_bytes()
     )
+    bootstrap_length = len(bootstrap_bytes)
+    bootstrap_sha256 = hashlib.sha256(
+        bootstrap_bytes
+    ).hexdigest().upper()
 
     safe_asset_id = _powershell_single_quote(
         asset_id
@@ -208,6 +262,8 @@ def deploy_windows_agent(
     safe_backend_url = _powershell_single_quote(
         backend_url.rstrip("/")
     )
+    safe_ingest_token = _powershell_single_quote(ingest_token)
+    safe_credential_id = _powershell_single_quote(credential_id)
 
     remote_directory = (
         r"C:\ProgramData\ComplianceAgent"
@@ -215,6 +271,12 @@ def deploy_windows_agent(
     remote_script_path = (
         remote_directory
         + r"\bootstrap_windows_managed_target.ps1"
+    )
+    remote_upload_path = (
+        remote_directory
+        + "\\bootstrap_windows_managed_target."
+        + uuid4().hex
+        + ".tmp.ps1"
     )
 
     endpoint = (
@@ -268,6 +330,11 @@ def deploy_windows_agent(
                 remote_script_path
             )
         )
+        safe_upload_path = (
+            _powershell_single_quote(
+                remote_upload_path
+            )
+        )
 
         initialize_script = (
             "$ErrorActionPreference = 'Stop'; "
@@ -275,7 +342,7 @@ def deploy_windows_agent(
             f"-Force -Path '{safe_directory}' "
             "| Out-Null; "
             "[System.IO.File]::WriteAllBytes("
-            f"'{safe_script_path}', "
+            f"'{safe_upload_path}', "
             "[byte[]]@())"
         )
 
@@ -312,7 +379,7 @@ def deploy_windows_agent(
                 f"'{encoded_chunk}'); "
                 "$stream = "
                 "[System.IO.File]::Open("
-                f"'{safe_script_path}', "
+                f"'{safe_upload_path}', "
                 "[System.IO.FileMode]::Append, "
                 "[System.IO.FileAccess]::Write, "
                 "[System.IO.FileShare]::None); "
@@ -342,18 +409,65 @@ def deploy_windows_agent(
                     "output": output,
                 }
 
+        verify_script = (
+            "$ErrorActionPreference = 'Stop'; "
+            f"$path = '{safe_upload_path}'; "
+            "$file = Get-Item -LiteralPath $path; "
+            "$hash = (Get-FileHash -LiteralPath $path "
+            "-Algorithm SHA256).Hash; "
+            f"if ($file.Length -ne {bootstrap_length}) {{ "
+            "throw ('Bootstrap length mismatch: ' + "
+            "$file.Length) }; "
+            f"if ($hash -ne '{bootstrap_sha256}') {{ "
+            "throw ('Bootstrap SHA256 mismatch: ' + "
+            "$hash) }; "
+            "Write-Output ('Length=' + $file.Length + "
+            "' SHA256=' + $hash)"
+        )
+
+        if not run_step(
+            session,
+            "Verify Windows bootstrap upload",
+            verify_script,
+        ):
+            return {
+                "status": "failed",
+                "output": output,
+            }
+
         execute_script = (
             "$ErrorActionPreference = 'Stop'; "
             "& "
-            f"'{safe_script_path}' "
+            f"'{safe_upload_path}' "
             f"-BackendUrl '{safe_backend_url}' "
-            f"-AssetId '{safe_asset_id}'"
+            f"-AssetId '{safe_asset_id}' "
+            f"-IngestToken '{safe_ingest_token}' "
+            f"-CredentialId '{safe_credential_id}'"
         )
 
         if not run_step(
             session,
             "Execute Windows bootstrap script",
             execute_script,
+        ):
+            return {
+                "status": "failed",
+                "output": output,
+            }
+
+        promote_script = (
+            "$ErrorActionPreference = 'Stop'; "
+            "[System.IO.File]::Copy("
+            f"'{safe_upload_path}', "
+            f"'{safe_script_path}', $true); "
+            "Remove-Item -LiteralPath "
+            f"'{safe_upload_path}' -Force"
+        )
+
+        if not run_step(
+            session,
+            "Finalize Windows bootstrap upload",
+            promote_script,
         ):
             return {
                 "status": "failed",
@@ -389,6 +503,8 @@ def deploy_agent(
     os_family: str = "ubuntu",
     asset_id: str = "",
     backend_url: str = "",
+    ingest_token: str = "",
+    credential_id: str = "",
 ) -> dict:
     normalized_os = os_family.strip().lower()
 
@@ -425,6 +541,35 @@ def deploy_agent(
                 ],
             }
 
+        if not ingest_token:
+            return {
+                "status": "failed",
+                "output": [
+                    _command_result(
+                        command="Validate deployment",
+                        exit_code=1,
+                        stdout="",
+                        stderr=(
+                            "WINDOWS_AGENT_INGEST_TOKEN is required "
+                            "for Windows deployment"
+                        ),
+                    )
+                ],
+            }
+
+        if not credential_id:
+            return {
+                "status": "failed",
+                "output": [
+                    _command_result(
+                        command="Validate deployment",
+                        exit_code=1,
+                        stdout="",
+                        stderr="Windows agent credential ID is required",
+                    )
+                ],
+            }
+
         return deploy_windows_agent(
             address=address,
             username=username,
@@ -432,6 +577,8 @@ def deploy_agent(
             port=port,
             asset_id=asset_id,
             backend_url=backend_url,
+            ingest_token=ingest_token,
+            credential_id=credential_id,
         )
 
     if normalized_os in {

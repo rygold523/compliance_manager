@@ -2,8 +2,8 @@
 set -euo pipefail
 APP_ROOT="${APP_ROOT:-/opt/ai-vulnerability-management}"; APP_USER="${APP_USER:-aivuln}"; SECRET_DIR="${SECRET_DIR:-/root/aivuln-secrets}"; DB_CONTAINER="${DB_CONTAINER:-aivuln-postgres}"; POSTGRES_DB="${POSTGRES_DB:-aivuln}"; POSTGRES_USER="${POSTGRES_USER:-aivuln}"
 mkdir -p "$SECRET_DIR"; chmod 700 "$SECRET_DIR"
-for s in postgres_password jwt_secret encryption_key jenkins_webhook_secret; do [[ -f "$SECRET_DIR/$s" ]] || openssl rand -hex 32 > "$SECRET_DIR/$s"; done
-POSTGRES_PASSWORD="$(cat "$SECRET_DIR/postgres_password")"; JWT_SECRET="$(cat "$SECRET_DIR/jwt_secret")"; ENCRYPTION_KEY="$(cat "$SECRET_DIR/encryption_key")"; JENKINS_WEBHOOK_SECRET="$(cat "$SECRET_DIR/jenkins_webhook_secret")"
+for s in postgres_password jwt_secret encryption_key jenkins_webhook_secret windows_agent_ingest_token; do [[ -f "$SECRET_DIR/$s" ]] || openssl rand -hex 32 > "$SECRET_DIR/$s"; done
+POSTGRES_PASSWORD="$(cat "$SECRET_DIR/postgres_password")"; JWT_SECRET="$(cat "$SECRET_DIR/jwt_secret")"; ENCRYPTION_KEY="$(cat "$SECRET_DIR/encryption_key")"; JENKINS_WEBHOOK_SECRET="$(cat "$SECRET_DIR/jenkins_webhook_secret")"; WINDOWS_AGENT_INGEST_TOKEN="$(cat "$SECRET_DIR/windows_agent_ingest_token")"
 SERVER_IP="$(hostname -I | awk '{print $1}')"
 cat > "$APP_ROOT/.env" <<EOF
 APP_ENV=production
@@ -22,6 +22,8 @@ REMOTE_EXEC_TIMEOUT_SECONDS=120
 REMOTE_EXEC_REQUIRE_APPROVAL=true
 REMOTE_EXEC_ALLOW_ARBITRARY_COMMANDS=false
 JENKINS_WEBHOOK_SECRET=${JENKINS_WEBHOOK_SECRET}
+WINDOWS_AGENT_INGEST_TOKEN=${WINDOWS_AGENT_INGEST_TOKEN}
+WINDOWS_AGENT_INGEST_ENFORCE_AUTH=false
 AI_ENABLED=false
 AI_PROVIDER=ollama
 AI_MODEL=llama3.2:3b

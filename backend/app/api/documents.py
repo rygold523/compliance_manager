@@ -128,7 +128,7 @@ async def upload_document(
         "sha256": hash_file(stored_path),
         "size_bytes": stored_path.stat().st_size,
         "mapped_controls": mapping["controls"],
-        "mapped_frameworks": framework_mappings_for_controls(record.get("mapped_controls") or selected or []),
+        "mapped_frameworks": mapping["frameworks"],
         "created_at": now(),
         "updated_at": now(),
     }

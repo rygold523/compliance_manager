@@ -6,6 +6,7 @@ import requests
 
 from fastapi import (
     APIRouter,
+    Depends,
     Header,
     HTTPException,
 )
@@ -13,6 +14,7 @@ from fastapi import (
 from app.services import (
     iam_db_service,
 )
+from app.auth.dependencies import require_roles
 
 
 router = APIRouter(
@@ -116,7 +118,9 @@ def ingest_database_iam(
 @router.get(
     "/db-sources",
 )
-def database_sources():
+def database_sources(
+    _reviewer=Depends(require_roles("admin", "auditor")),
+):
     try:
         return {
             "sources": (
@@ -136,7 +140,9 @@ def database_sources():
 @router.get(
     "/db-access",
 )
-def database_access():
+def database_access(
+    _reviewer=Depends(require_roles("admin", "auditor")),
+):
     try:
         return {
             "accounts": (
@@ -157,7 +163,9 @@ def database_access():
 @router.get(
     "/db-collector/status",
 )
-def database_collector_status():
+def database_collector_status(
+    _reviewer=Depends(require_roles("admin", "auditor")),
+):
     return collector_request(
         "GET",
         "/health",
@@ -168,7 +176,9 @@ def database_collector_status():
 @router.post(
     "/db-collect",
 )
-def collect_database_iam():
+def collect_database_iam(
+    _admin=Depends(require_roles("admin")),
+):
     return collector_request(
         "POST",
         "/collect",

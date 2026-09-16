@@ -585,6 +585,7 @@ function App({ currentUser, onLogout }) {
   const canManageUsers = hasCapability(currentUser, "manage_users");
   const canReviewAccess = hasCapability(currentUser, "review_access");
   const canManageAccessReviews = hasCapability(currentUser, "manage_access_reviews");
+  const canViewIam = hasCapability(currentUser, "view_iam");
   const [health, setHealth] = useState(null);
   const [assets, setAssets] = useState([]);
   const [findings, setFindings] = useState([]);
@@ -1649,12 +1650,14 @@ async function deployAgent() {
         <div className="page-tabs">
           <button className={activePage === "dashboard" ? "active" : ""} onClick={() => setActivePage("dashboard")}>Dashboard</button>
 
-<button
-  className={activePage === "iam" ? "active" : ""}
-  onClick={() => setActivePage("iam")}
->
-  IAM
-</button>
+{canViewIam && (
+  <button
+    className={activePage === "iam" ? "active" : ""}
+    onClick={() => setActivePage("iam")}
+  >
+    IAM
+  </button>
+)}
 
           <button className={activePage === "assets" ? "active" : ""} onClick={() => setActivePage("assets")}>Asset Details</button>
           <button className={activePage === "collectors" ? "active" : ""} onClick={() => setActivePage("collectors")}>Collectors</button>
@@ -1668,7 +1671,7 @@ async function deployAgent() {
         </div>
 
 
-{activePage === "iam" && (
+{activePage === "iam" && canViewIam && (
   <IAM canCollect={canManage} />
 )}
 

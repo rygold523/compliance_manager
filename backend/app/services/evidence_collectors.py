@@ -1,39 +1,38 @@
 from datetime import datetime, timezone
 from app.services.remote_executor import run_ssh_command
 
-COLLECTORS = {'iam_users': {'command': 'sudo /usr/local/lib/compliance/collectors/iam_users.py',
+PRIVILEGED_COMMAND = "sudo /usr/local/sbin/compliance-agent-command"
+
+
+COLLECTORS = {'iam_users': {'command': f'{PRIVILEGED_COMMAND} collect-iam-users',
                'control_ids': ['AC-02', 'AC-01', 'AC-07'],
                'frameworks': {'pci_dss': ['7.2', '8.2', '8.3'],
                               'soc2': ['CC6.1', 'CC6.2'],
                               'nist_800_53': ['AC-2', 'IA-2', 'AC-6'],
                               'iso_27001': ['A.5.15', 'A.5.16', 'A.8.2'],
                               'iso_27002': ['5.15', '5.16', '8.2']}},
- 'user_changes': {'command': "sudo grep -E 'useradd|userdel|usermod|groupadd|groupdel|passwd' /var/log/auth.log "
-                             '/var/log/auth.log.1 2>/dev/null | tail -200',
+ 'user_changes': {'command': f'{PRIVILEGED_COMMAND} collect-user-changes',
                   'control_ids': ['AC-02', 'SI-01'],
                   'frameworks': {'pci_dss': ['7.2', '8.2', '10.2'],
                                  'soc2': ['CC6.1', 'CC7.2'],
                                  'nist_800_53': ['AC-2', 'AU-6'],
                                  'iso_27001': ['A.5.15', 'A.8.15'],
                                  'iso_27002': ['5.15', '8.15']}},
- 'auth_success': {'command': "sudo grep -Ei 'accepted password|accepted publickey|session opened' /var/log/auth.log "
-                             '/var/log/auth.log.1 2>/dev/null | tail -200',
+ 'auth_success': {'command': f'{PRIVILEGED_COMMAND} collect-auth-success',
                   'control_ids': ['AC-02', 'SI-01'],
                   'frameworks': {'pci_dss': ['8.2', '10.2'],
                                  'soc2': ['CC6.1', 'CC7.2'],
                                  'nist_800_53': ['AU-6', 'AC-2'],
                                  'iso_27001': ['A.8.15', 'A.8.16'],
                                  'iso_27002': ['8.15', '8.16']}},
- 'auth_failure': {'command': "sudo grep -Ei 'failed password|authentication failure|invalid user' /var/log/auth.log "
-                             '/var/log/auth.log.1 2>/dev/null | tail -200',
+ 'auth_failure': {'command': f'{PRIVILEGED_COMMAND} collect-auth-failure',
                   'control_ids': ['AC-02', 'SI-01'],
                   'frameworks': {'pci_dss': ['8.2', '10.2', '10.6'],
                                  'soc2': ['CC6.1', 'CC7.2'],
                                  'nist_800_53': ['AU-6', 'SI-4'],
                                  'iso_27001': ['A.8.15', 'A.8.16'],
                                  'iso_27002': ['8.15', '8.16']}},
- 'sudo_activity': {'command': "sudo grep -Ei 'sudo:|COMMAND=' /var/log/auth.log /var/log/auth.log.1 2>/dev/null | tail "
-                              '-200',
+ 'sudo_activity': {'command': f'{PRIVILEGED_COMMAND} collect-sudo-activity',
                    'control_ids': ['AC-02', 'SI-01'],
                    'frameworks': {'pci_dss': ['7.2', '10.2'],
                                   'soc2': ['CC6.1', 'CC7.2'],
@@ -63,7 +62,7 @@ COLLECTORS = {'iam_users': {'command': 'sudo /usr/local/lib/compliance/collector
                                    'nist_800_53': ['CM-8', 'SI-4'],
                                    'iso_27001': ['A.5.9', 'A.8.16'],
                                    'iso_27002': ['5.9', '8.16']}},
- 'os_inventory': {'command': 'sudo /usr/local/lib/compliance/collectors/os_inventory.py',
+ 'os_inventory': {'command': f'{PRIVILEGED_COMMAND} collect-os-inventory',
                   'control_ids': ['AM-01', 'CM-01'],
                   'frameworks': {'pci_dss': ['12.5'],
                                  'soc2': ['CC6.1', 'CC8.1'],
@@ -99,18 +98,14 @@ COLLECTORS = {'iam_users': {'command': 'sudo /usr/local/lib/compliance/collector
                                       'nist_800_53': ['RA-5', 'SI-2'],
                                       'iso_27001': ['A.8.8'],
                                       'iso_27002': ['8.8']}},
- 'firewall_status': {'command': 'if command -v ufw >/dev/null 2>&1; then sudo -n ufw status verbose || echo '
-                                "'UFW_STATUS_UNAVAILABLE'; elif command -v nft >/dev/null 2>&1; then sudo -n nft list "
-                                "ruleset || echo 'NFT_RULESET_UNAVAILABLE'; elif command -v iptables >/dev/null 2>&1; "
-                                "then sudo -n iptables -S || echo 'IPTABLES_STATUS_UNAVAILABLE'; else echo "
-                                "'NO_FIREWALL_TOOL_FOUND'; fi; exit 0",
+ 'firewall_status': {'command': f'{PRIVILEGED_COMMAND} collect-firewall-status',
                      'control_ids': ['NS-01'],
                      'frameworks': {'pci_dss': ['1.2', '1.3'],
                                     'soc2': ['CC6.6'],
                                     'nist_800_53': ['SC-7'],
                                     'iso_27001': ['A.8.20'],
                                     'iso_27002': ['8.20']}},
- 'ssh_config': {'command': 'sudo cat /etc/ssh/sshd_config',
+ 'ssh_config': {'command': f'{PRIVILEGED_COMMAND} collect-ssh-config',
                 'control_ids': ['AC-02', 'CM-01'],
                 'frameworks': {'pci_dss': ['2.2', '8.2'],
                                'soc2': ['CC6.1', 'CC8.1'],
@@ -124,14 +119,14 @@ COLLECTORS = {'iam_users': {'command': 'sudo /usr/local/lib/compliance/collector
                               'nist_800_53': ['AU-8'],
                               'iso_27001': ['A.8.17'],
                               'iso_27002': ['8.17']}},
- 'disk_usage': {'command': 'sudo /usr/local/lib/compliance/collectors/disk_usage.py',
+ 'disk_usage': {'command': f'{PRIVILEGED_COMMAND} collect-disk-usage',
                 'control_ids': ['CP-01', 'CM-01'],
                 'frameworks': {'pci_dss': ['12.10.1'],
                                'soc2': ['A1.2'],
                                'nist_800_53': ['CP-9'],
                                'iso_27001': ['A.8.13'],
                                'iso_27002': ['8.13']}},
- 'docker_inventory': {'command': 'sudo /usr/local/lib/compliance/collectors/docker_inventory.py',
+ 'docker_inventory': {'command': f'{PRIVILEGED_COMMAND} collect-docker-inventory',
                       'control_ids': ['CM-01', 'VM-01'],
                       'frameworks': {'pci_dss': ['2.2', '6.3.3'],
                                      'soc2': ['CC7.1', 'CC8.1'],
@@ -164,16 +159,16 @@ COLLECTORS = {'iam_users': {'command': 'sudo /usr/local/lib/compliance/collector
                                          'iso_27002': ['8.7']}},
  'listening_ports': {'control_ids': ['CM-01'],
                      'frameworks': ['pci_dss', 'soc2', 'nist_800_53', 'iso_27002'],
-                     'command': 'sudo /usr/local/lib/compliance/collectors/listening_ports.py'},
+                     'command': f'{PRIVILEGED_COMMAND} collect-listening-ports'},
  'package_inventory': {'control_ids': ['CM-01'],
                        'frameworks': ['pci_dss', 'soc2', 'nist_800_53', 'iso_27002'],
-                       'command': 'sudo /usr/local/lib/compliance/collectors/package_inventory.py'},
+                       'command': f'{PRIVILEGED_COMMAND} collect-package-inventory'},
  'agent_lifecycle': {'control_ids': ['CM-01'],
                      'frameworks': ['pci_dss', 'soc2', 'nist_800_53', 'iso_27001', 'iso_27002'],
-                     'command': 'sudo /usr/local/lib/compliance/collectors/agent_lifecycle.py'},
+                     'command': f'{PRIVILEGED_COMMAND} collect-agent-lifecycle'},
  'collector_health': {'control_ids': ['CM-01'],
                       'frameworks': ['pci_dss', 'soc2', 'nist_800_53', 'iso_27001', 'iso_27002'],
-                      'command': 'sudo /usr/local/lib/compliance/collectors/collector_health.py'}}
+                      'command': f'{PRIVILEGED_COMMAND} collect-collector-health'}}
 
 
 def run_collector(asset, collector_name: str) -> dict:

@@ -2,7 +2,11 @@ param(
     [string]$BackendUrl = "http://localhost:8000",
     [string]$AssetId = $env:COMPUTERNAME,
     [string]$InstallDir = "C:\ProgramData\ComplianceAgent",
-    [string]$AgentVersion = "2026.09.09.1"
+    [string]$AgentVersion = "2026.09.09.1",
+    [Parameter(Mandatory = $true)]
+    [string]$IngestToken,
+    [Parameter(Mandatory = $true)]
+    [string]$CredentialId
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,6 +24,8 @@ $Config = [ordered]@{
     agent_version = $AgentVersion
     expected_agent_version = $AgentVersion
     collector_manifest_version = $AgentVersion
+    ingest_token = $IngestToken
+    credential_id = $CredentialId
     installed_at = (
         Get-Date
     ).ToUniversalTime().ToString("o")
@@ -28,7 +34,7 @@ $Config = [ordered]@{
 $Config |
     ConvertTo-Json -Depth 10 |
     Out-File `
-        -FilePath "$InstallDir\agent-config.json" `
+        -FilePath "$InstallDir\agent-config.json.new" `
         -Encoding UTF8
 
 $CollectorScript = @'
@@ -673,6 +679,15 @@ $Json |
         -Encoding UTF8
 
 try {
+    $Headers = @{
+        "X-Windows-Agent-Token" = [string]$Config.ingest_token
+    }
+
+    if ($Config.credential_id) {
+        $Headers["X-Windows-Agent-Credential-ID"] = `
+            [string]$Config.credential_id
+    }
+
     $Response = Invoke-RestMethod `
         -Uri (
             "$($Config.backend_url)" +
@@ -680,6 +695,7 @@ try {
         ) `
         -Method Post `
         -ContentType "application/json" `
+        -Headers $Headers `
         -Body $Json `
         -TimeoutSec 60
 
@@ -750,6 +766,30 @@ $Manifest |
         ) `
         -Encoding UTF8
 
+$PendingConfigPath = Join-Path $InstallDir "agent-config.json.new"
+$ConfigPath = Join-Path $InstallDir "agent-config.json"
+$PreflightHeaders = @{
+    "X-Windows-Agent-Token" = $IngestToken
+    "X-Windows-Agent-Credential-ID" = $CredentialId
+}
+$PreflightBody = @{
+    asset_id = $AssetId
+} | ConvertTo-Json
+
+Invoke-RestMethod `
+    -Uri ($BackendUrl.TrimEnd("/") + "/api/windows-agent/auth-check") `
+    -Method Post `
+    -ContentType "application/json" `
+    -Headers $PreflightHeaders `
+    -Body $PreflightBody `
+    -TimeoutSec 30 |
+    Out-Null
+
+Move-Item `
+    -LiteralPath $PendingConfigPath `
+    -Destination $ConfigPath `
+    -Force
+
 $Action = New-ScheduledTaskAction `
     -Execute "powershell.exe" `
     -Argument (
@@ -767,6 +807,14 @@ $Trigger = New-ScheduledTaskTrigger `
 $Principal = New-ScheduledTaskPrincipal `
     -UserId "SYSTEM" `
     -RunLevel Highest
+
+& icacls.exe `
+    $InstallDir `
+    /inheritance:r `
+    /grant:r `
+    '*S-1-5-18:(OI)(CI)F' `
+    '*S-1-5-32-544:(OI)(CI)F' |
+    Out-Null
 
 Register-ScheduledTask `
     -TaskName "ComplianceAgentCollector" `
