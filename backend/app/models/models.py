@@ -303,3 +303,18 @@ class AuthAuditEvent(Base):
     source_address = Column(String(128), nullable=True)
     detail = Column(JSON, default=dict)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class AuthLoginThrottle(Base):
+    __tablename__ = "auth_login_throttles"
+
+    id = Column(Integer, primary_key=True)
+    scope_key = Column(String(64), unique=True, index=True, nullable=False)
+    failure_count = Column(Integer, nullable=False, default=0)
+    window_started_at = Column(DateTime(timezone=True), nullable=False)
+    blocked_until = Column(DateTime(timezone=True), index=True, nullable=True)
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )

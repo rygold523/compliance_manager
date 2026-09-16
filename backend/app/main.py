@@ -24,6 +24,7 @@ from app.continuous_compliance.api.routes import router as continuous_compliance
 from app.continuous_compliance.api.reporting_routes import router as continuous_compliance_reporting_router
 from app.continuous_compliance.api.state_routes import router as continuous_compliance_state_router
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from app.api.assets import router as assets_router
 from app.api.findings import router as findings_router
 from app.api.approvals import router as approvals_router
@@ -47,10 +48,18 @@ from app.api.changelog import router as changelog_router
 from app.core.database import Base, SessionLocal, engine
 from app.auth.middleware import AuthenticationMiddleware
 from app.core.config import settings
+from app.core.http_security import (
+    parse_allowed_hosts,
+    production_api_documentation_urls,
+)
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="Compliance Manager", version="1.0.0")
+app = FastAPI(
+    title="Compliance Manager",
+    version="1.0.0",
+    **production_api_documentation_urls(settings.app_env),
+)
 
 cors_origins = [
     origin.strip().rstrip("/")
@@ -64,6 +73,10 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Accept", "Content-Type"],
+)
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=parse_allowed_hosts(settings.auth_allowed_hosts),
 )
 app.include_router(auth.router)
 app.include_router(admin_users.router)

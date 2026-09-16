@@ -1,7 +1,9 @@
-from datetime import timedelta
+import hashlib
+from datetime import timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.auth.service import (
@@ -16,8 +18,9 @@ from app.auth.service import (
     verify_password,
 )
 from app.core.config import settings
+from app.core.client_address import resolve_client_address
 from app.core.database import get_db
-from app.models.models import AuthSession, LocalUser
+from app.models.models import AuthLoginThrottle, AuthSession, LocalUser
 
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
@@ -33,10 +36,6 @@ class PasswordChangeRequest(BaseModel):
     new_password: str = Field(min_length=14, max_length=1024)
 
 
-def source_address(request: Request) -> str | None:
-    return request.client.host if request.client else None
-
-
 def set_session_cookie(response: Response, token: str) -> None:
     response.set_cookie(
         key=settings.auth_cookie_name,
@@ -47,6 +46,110 @@ def set_session_cookie(response: Response, token: str) -> None:
         samesite=settings.auth_cookie_samesite,
         path="/",
     )
+
+
+INVALID_LOGIN_DETAIL = "Invalid username or password."
+
+
+def _aware(value):
+    if value is not None and value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
+def _throttle_scope_key(kind: str, username: str, address: str | None) -> str:
+    material = f"{kind}\0{address or 'unknown'}"
+    if kind == "identity_source":
+        material += f"\0{username}"
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+
+def _throttle_records(db: Session, username: str, address: str | None):
+    keys = {
+        "source": _throttle_scope_key("source", username, address),
+        "identity_source": _throttle_scope_key(
+            "identity_source", username, address
+        ),
+    }
+    if db.get_bind().dialect.name == "postgresql":
+        for key in sorted(keys.values()):
+            lock_key = int(key[:16], 16)
+            if lock_key >= 2**63:
+                lock_key -= 2**64
+            db.execute(
+                text("SELECT pg_advisory_xact_lock(:lock_key)"),
+                {"lock_key": lock_key},
+            )
+    records = {
+        row.scope_key: row
+        for row in (
+            db.query(AuthLoginThrottle)
+            .filter(AuthLoginThrottle.scope_key.in_(keys.values()))
+            .with_for_update()
+            .all()
+        )
+    }
+    return keys, records
+
+
+def _login_is_throttled(db: Session, username: str, address: str | None, now) -> bool:
+    _, records = _throttle_records(db, username, address)
+    return any(
+        _aware(record.blocked_until) is not None
+        and _aware(record.blocked_until) > now
+        for record in records.values()
+    )
+
+
+def _record_login_failure(
+    db: Session,
+    username: str,
+    address: str | None,
+    now,
+    *,
+    identity_known: bool,
+) -> None:
+    keys, records = _throttle_records(db, username, address)
+    if not identity_known:
+        keys.pop("identity_source")
+    window = timedelta(minutes=settings.auth_login_throttle_window_minutes)
+
+    for kind, key in keys.items():
+        record = records.get(key)
+        if record is None:
+            record = AuthLoginThrottle(
+                scope_key=key,
+                failure_count=0,
+                window_started_at=now,
+            )
+            db.add(record)
+        elif now - _aware(record.window_started_at) >= window:
+            record.failure_count = 0
+            record.window_started_at = now
+            record.blocked_until = None
+
+        record.failure_count += 1
+        threshold = (
+            settings.auth_login_source_max_attempts
+            if kind == "source"
+            else settings.auth_max_failed_attempts
+        )
+        if record.failure_count >= threshold:
+            exponent = min(record.failure_count - threshold, 10)
+            seconds = min(
+                settings.auth_login_max_backoff_seconds,
+                settings.auth_login_initial_backoff_seconds * (2**exponent),
+            )
+            record.blocked_until = now + timedelta(seconds=seconds)
+
+
+def _clear_identity_source_throttle(
+    db: Session, username: str, address: str | None
+) -> None:
+    key = _throttle_scope_key("identity_source", username, address)
+    db.query(AuthLoginThrottle).filter(
+        AuthLoginThrottle.scope_key == key
+    ).delete(synchronize_session=False)
 
 
 @router.post("/login")
@@ -60,65 +163,63 @@ def login(
         raise HTTPException(status_code=503, detail="Local authentication is disabled.")
 
     username = normalize_username(payload.username)
-    user = db.query(LocalUser).filter(LocalUser.username == username).first()
     now = utc_now()
+    address = resolve_client_address(request)
+    user = db.query(LocalUser).filter(LocalUser.username == username).first()
 
+    password_valid = False
     if user is None:
         consume_dummy_password_check(payload.password)
-        audit(
-            db,
-            "login_failed",
-            username=username,
-            source_address=source_address(request),
-            detail={"reason": "invalid_credentials"},
-        )
-        db.commit()
-        raise HTTPException(status_code=401, detail="Invalid username or password.")
+    else:
+        password_valid = verify_password(user.password_hash, payload.password)
 
-    if not user.enabled:
-        consume_dummy_password_check(payload.password)
-        audit(
-            db,
-            "login_failed",
-            username=user.username,
-            user_id=user.id,
-            source_address=source_address(request),
-            detail={"reason": "account_disabled"},
-        )
-        db.commit()
-        raise HTTPException(status_code=401, detail="Invalid username or password.")
+    throttled = _login_is_throttled(db, username, address, now)
+    account_locked = bool(
+        user is not None
+        and user.locked_until is not None
+        and _aware(user.locked_until) > now
+    )
+    login_valid = bool(
+        user is not None
+        and user.enabled
+        and not account_locked
+        and password_valid
+        and not throttled
+    )
 
-    if user.locked_until and user.locked_until > now:
+    if not login_valid:
+        _record_login_failure(
+            db,
+            username,
+            address,
+            now,
+            identity_known=user is not None,
+        )
+        if user is not None and not password_valid:
+            user.failed_login_attempts = min(
+                user.failed_login_attempts + 1,
+                2_147_483_647,
+            )
+        reason = "rate_limited" if throttled else "invalid_credentials"
+        if user is not None and not user.enabled:
+            reason = "account_disabled"
+        elif account_locked:
+            reason = "account_locked"
         audit(
             db,
             "login_failed",
-            username=user.username,
-            user_id=user.id,
-            source_address=source_address(request),
-            detail={"reason": "account_locked"},
+            username=user.username if user is not None else username,
+            user_id=user.id if user is not None else None,
+            source_address=address,
+            detail={"reason": reason},
         )
         db.commit()
-        raise HTTPException(status_code=429, detail="Account is temporarily locked.")
-
-    if not verify_password(user.password_hash, payload.password):
-        user.failed_login_attempts += 1
-        if user.failed_login_attempts >= settings.auth_max_failed_attempts:
-            user.locked_until = now + timedelta(minutes=settings.auth_lockout_minutes)
-            user.failed_login_attempts = 0
-        audit(
-            db,
-            "login_failed",
-            username=user.username,
-            user_id=user.id,
-            source_address=source_address(request),
-            detail={"reason": "invalid_credentials"},
-        )
-        db.commit()
-        raise HTTPException(status_code=401, detail="Invalid username or password.")
+        raise HTTPException(status_code=401, detail=INVALID_LOGIN_DETAIL)
 
     user.failed_login_attempts = 0
     user.locked_until = None
     user.last_login_at = now
+    _clear_identity_source_throttle(db, username, address)
     token, session = create_session(db, user)
     db.flush()
     audit(
@@ -126,7 +227,7 @@ def login(
         "login_succeeded",
         username=user.username,
         user_id=user.id,
-        source_address=source_address(request),
+        source_address=address,
         detail={
             "session_id": session.id,
             "user_agent": (request.headers.get("user-agent") or "")[:512],
@@ -161,7 +262,7 @@ def logout(
             "logout",
             username=user.username,
             user_id=user.id,
-            source_address=source_address(request),
+            source_address=resolve_client_address(request),
         )
         db.commit()
     response.delete_cookie(
@@ -221,7 +322,7 @@ def change_password(
         "password_changed",
         username=user.username,
         user_id=user.id,
-        source_address=source_address(request),
+        source_address=resolve_client_address(request),
     )
     db.commit()
     return {"user": public_user(user)}

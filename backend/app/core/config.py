@@ -3,7 +3,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     app_env: str = "production"
-    database_url: str = "postgresql+psycopg2://aivuln:change_me@aivuln-postgres:5432/aivuln"
+    database_url: str
     evidence_root: str = "/app/evidence"
     public_backend_url: str = "http://localhost:8000"
     windows_agent_ingest_token: str = ""
@@ -18,7 +18,13 @@ class Settings(BaseSettings):
     auth_cookie_samesite: str = "strict"
     auth_max_failed_attempts: int = 5
     auth_lockout_minutes: int = 15
+    auth_login_source_max_attempts: int = 50
+    auth_login_throttle_window_minutes: int = 15
+    auth_login_initial_backoff_seconds: int = 30
+    auth_login_max_backoff_seconds: int = 900
     auth_cors_origins: str = "http://localhost:3000"
+    auth_allowed_hosts: str = "localhost,127.0.0.1"
+    auth_trusted_proxy_networks: str = ""
     auth_service_paths: str = "/api/health,/api/live,/api/ready,/api/iam/db-ingest,/api/windows-agent/ingest,/api/windows-agent/auth-check"
     auth_session_retention_days: int = 30
     auth_audit_retention_days: int = 400

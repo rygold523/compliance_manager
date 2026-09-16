@@ -18,6 +18,7 @@ from app.auth.service import (
 )
 from app.api.changelog import stable_changelog_event_id, write_changelog
 from app.core.database import get_db
+from app.core.client_address import resolve_client_address
 from app.models.models import AuthAuditEvent, AuthSession, LocalUser
 
 
@@ -59,10 +60,6 @@ class DormantDisableRequest(BaseModel):
 
 class PasswordResetRequest(BaseModel):
     new_password: str = Field(min_length=14, max_length=1024)
-
-
-def source_address(request: Request) -> str | None:
-    return request.client.host if request.client else None
 
 
 def sanitize_changelog_details(value):
@@ -321,7 +318,7 @@ def disable_dormant_users(
     if payload.preview:
         return {"preview": True, "inactive_days": payload.inactive_days, "users": preview, "count": len(preview)}
 
-    request_source = source_address(request)
+    request_source = resolve_client_address(request)
     disabled = []
     for user in users:
         user.enabled = False
@@ -455,7 +452,7 @@ def revoke_single_session(
         raise HTTPException(status_code=409, detail="The session is not active.")
 
     session.revoked_at = utc_now()
-    request_source = source_address(request)
+    request_source = resolve_client_address(request)
     audit_event_id = audit(
         db,
         "user_session_revoked",
@@ -488,7 +485,7 @@ def create_user(
     db: Session = Depends(get_db),
     admin=Depends(require_roles("admin")),
 ):
-    request_source = source_address(request)
+    request_source = resolve_client_address(request)
     username = validate_username(payload.username)
     display_name = payload.display_name.strip()
     if not display_name:
@@ -552,7 +549,7 @@ def update_user(
     db: Session = Depends(get_db),
     admin=Depends(require_roles("admin")),
 ):
-    request_source = source_address(request)
+    request_source = resolve_client_address(request)
     user = get_user_for_update(db, user_id)
     changes = payload.model_dump(exclude_unset=True)
     if not changes:
@@ -700,7 +697,7 @@ def reset_password(
     db: Session = Depends(get_db),
     admin=Depends(require_roles("admin")),
 ):
-    request_source = source_address(request)
+    request_source = resolve_client_address(request)
     user = get_user_for_update(db, user_id)
     try:
         user.password_hash = hash_password(payload.new_password)
@@ -746,7 +743,7 @@ def unlock_user(
     db: Session = Depends(get_db),
     admin=Depends(require_roles("admin")),
 ):
-    request_source = source_address(request)
+    request_source = resolve_client_address(request)
     user = get_user_for_update(db, user_id)
     user.failed_login_attempts = 0
     user.locked_until = None
@@ -777,7 +774,7 @@ def revoke_sessions(
     db: Session = Depends(get_db),
     admin=Depends(require_roles("admin")),
 ):
-    request_source = source_address(request)
+    request_source = resolve_client_address(request)
     user = get_user_for_update(db, user_id)
     revoked_sessions = revoke_user_sessions(db, user.id)
     audit_event_id = audit(

@@ -3,4 +3,5 @@ from app.models.models import (
     ChatMessage, AgentDeployment, CollectorRun, ScannerResult,
     Assessment, AssessmentEvidence, WindowsAgentCredential,
     GeneratedReport, GeneratedReportEvidence,
+    AuthLoginThrottle,
 )
