@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-API_URL="${API_URL:-http://localhost:8000}"
+REPOSITORY_ROOT="${REPOSITORY_ROOT:-/opt/ai-vulnerability-management}"
 
 STATE_DIR="/var/lib/ai-vulnerability-management/scheduler_state"
 
@@ -15,11 +15,19 @@ DB_SOURCES_FILE="${DB_SOURCES_FILE:-/opt/ai-vulnerability-management/iam-db-coll
 
 collectors='[
   "iam_users",
+  "user_changes",
+  "auth_success",
+  "auth_failure",
+  "sudo_activity",
   "os_inventory",
+  "firewall_status",
+  "ssh_config",
   "disk_usage",
   "docker_inventory",
   "listening_ports",
-  "package_inventory"
+  "package_inventory",
+  "agent_lifecycle",
+  "collector_health"
 ]'
 
 mkdir -p \
@@ -680,102 +688,110 @@ process_db_collector_changes() {
 
 process_db_collector_changes
 
-curl -fsS "${API_URL}/api/assets/" |
-  jq -c '
-    .[]
-    | select(
-        (.agent_status // "")
-        | test(
-            "deployed"
-        )
-      )
-    | select(
-        ((.os_family // "") | ascii_downcase) != "windows"
-      )
-  ' |
-  while IFS= read -r asset
+if [ ! -d "${REPOSITORY_ROOT}" ]
+then
+  operational_event \
+    "scheduler" \
+    "all" \
+    "collector_run_failed" \
+    "Repository directory is unavailable."
+
+  echo "Repository directory is unavailable: ${REPOSITORY_ROOT}" >&2
+  exit 1
+fi
+
+if ! response="$(
+  cd "${REPOSITORY_ROOT}"
+
+  docker compose exec \
+    -T \
+    backend \
+    python -m app.cli.scheduled_collectors \
+      --collectors-json "${collectors}"
+)"
+then
+  operational_event \
+    "scheduler" \
+    "all" \
+    "collector_run_failed" \
+    "Internal scheduled collector execution failed."
+
+  exit 1
+fi
+
+if ! jq -e \
+  '.asset_id == "all" and (.results | type == "array")' \
+  >/dev/null 2>&1 \
+  <<<"$response"
+then
+  operational_event \
+    "scheduler" \
+    "all" \
+    "collector_run_failed" \
+    "Internal scheduler returned an invalid response."
+
+  echo "Internal scheduler returned invalid JSON." >&2
+  exit 1
+fi
+
+while IFS= read -r asset_result
+do
+  asset_id="$(
+    jq -r \
+      '.asset_id' \
+      <<<"$asset_result"
+  )"
+
+  echo "[$(ts)] Processed scheduled collectors for ${asset_id}"
+
+  while IFS= read -r result
   do
-    asset_id="$(
+    collector="$(
       jq -r \
-        '.asset_id' \
-        <<<"$asset"
+        '.collector' \
+        <<<"$result"
     )"
 
-    echo "[$(ts)] Running baseline collectors for ${asset_id}"
-
-    if ! response="$(
-      curl -fsS \
-        -X POST \
-        "${API_URL}/api/collectors/run" \
-        -H "Content-Type: application/json" \
-        -d "$(
-          jq -nc \
-            --arg asset_id "$asset_id" \
-            --argjson collectors "$collectors" \
-            '{
-              asset_id: $asset_id,
-              collectors: $collectors
-            }'
-        )"
+    status="$(
+      jq -r \
+        '.status' \
+        <<<"$result"
     )"
+
+    evidence_id="$(
+      jq -r \
+        '.evidence_id // empty' \
+        <<<"$result"
+    )"
+
+    evidence_created="$(
+      jq -r \
+        '.evidence_created // false' \
+        <<<"$result"
+    )"
+
+    operational_event \
+      "$asset_id" \
+      "$collector" \
+      "collector_run_${status}" \
+      "${collector} status ${status}."
+
+    if [ "$status" = "completed" ] &&
+       [ "$evidence_created" = "true" ] &&
+       [ -n "$evidence_id" ]
     then
-      operational_event \
-        "$asset_id" \
-        "all" \
-        "collector_run_failed" \
-        "Collector API request failed."
-
-      continue
-    fi
-
-    if ! jq -e . >/dev/null 2>&1 <<<"$response"
-    then
-      operational_event \
-        "$asset_id" \
-        "all" \
-        "collector_run_failed" \
-        "Collector API returned a non-JSON response."
-
-      continue
-    fi
-
-    while IFS= read -r result
-    do
-      collector="$(
-        jq -r \
-          '.collector' \
-          <<<"$result"
-      )"
-
-      status="$(
-        jq -r \
-          '.status' \
-          <<<"$result"
-      )"
-
-      evidence_id="$(
-        jq -r \
-          '.evidence_id // empty' \
-          <<<"$result"
-      )"
-
-      operational_event \
+      process_change \
         "$asset_id" \
         "$collector" \
-        "collector_run_${status}" \
-        "${collector} status ${status}."
-
-      if [ "$status" = "completed" ] &&
-         [ -n "$evidence_id" ]
-      then
-        process_change \
-          "$asset_id" \
-          "$collector" \
-          "$evidence_id"
-      fi
-    done < <(
-      jq -c \
-        '.results[]?' \
-        <<<"$response"
-    )
-  done
+        "$evidence_id"
+    fi
+  done < <(
+    jq -c \
+      '.results[]?' \
+      <<<"$asset_result"
+  )
+done < <(
+  jq -c \
+    '.results[]?' \
+    <<<"$response"
+)

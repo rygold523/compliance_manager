@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     validated_evidence_retention_days: int = 400
     unvalidated_evidence_retention_days: int = 400
     evidence_retention_archive_root: str = "/app/evidence/retention/changelog-evidence-archives"
+    evidence_forced_snapshot_hours: int = 168
 
     remote_exec_enabled: bool = True
     remote_exec_user: str = "compliance-agent"

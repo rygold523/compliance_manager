@@ -12,17 +12,13 @@ from app.services.asset_roles import normalize_asset_roles
 from app.services.remote_executor import run_ssh_command
 from app.services.evidence_collectors import run_collector, COLLECTORS
 from app.services.evidence_finding_analyzer import analyze_all_evidence
-from app.models import Evidence, CollectorRun
-from app.core.config import settings
+from app.services.change_aware_evidence import record_collection
 from app.api.changelog import write_changelog
 from app.services.windows_agent_credentials import (
     issue_credential,
     revoke_credential,
     revoke_other_credentials,
 )
-
-from pathlib import Path
-import json
 
 router = APIRouter()
 
@@ -38,47 +34,32 @@ def run_initial_collection(db: Session, asset: Asset):
     results = []
 
     for collector_name in COLLECTORS.keys():
-        run_id = f"COL-{uuid4().hex[:12].upper()}"
         output = run_collector(asset, collector_name)
 
         if output.get("status") == "completed":
             asset.last_seen = datetime.now(timezone.utc)
 
-        db.add(CollectorRun(
-            run_id=run_id,
-            asset_id=asset.asset_id,
-            collector=collector_name,
-            status=output["status"],
-            output=output,
-        ))
-
-        evidence_id = f"EV-{uuid4().hex[:12].upper()}"
-        evidence_dir = Path(settings.evidence_root) / asset.asset_id / collector_name
-        evidence_dir.mkdir(parents=True, exist_ok=True)
-        evidence_path = evidence_dir / f"{evidence_id}.json"
-        evidence_path.write_text(json.dumps(output, indent=2, default=str))
-
         control_id = output.get("control_ids", [None])[0]
-
-        db.add(Evidence(
-            evidence_id=evidence_id,
+        persisted = record_collection(
+            db,
             asset_id=asset.asset_id,
-            control_id=control_id,
-            filename=evidence_path.name,
-            file_path=str(evidence_path),
-            source="collector",
-            description=f"Initial deployment collector output for {collector_name}",
             collector=collector_name,
-            evidence_type=collector_name,
+            output=output,
+            source="collector",
+            control_id=control_id,
             frameworks=output.get("frameworks", {}),
             validated=output.get("status") == "completed",
-        ))
+            description=f"Initial deployment collector output for {collector_name}",
+            force_snapshot=True,
+        )
 
         results.append({
-            "run_id": run_id,
-            "evidence_id": evidence_id,
+            "run_id": persisted.run_id,
+            "evidence_id": persisted.evidence_id,
             "collector": collector_name,
             "status": output["status"],
+            "evidence_created": persisted.evidence_created,
+            "change_reason": persisted.reason,
         })
 
     db.commit()

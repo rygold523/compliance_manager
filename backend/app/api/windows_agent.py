@@ -1,9 +1,6 @@
 from datetime import datetime, timezone
 import hmac
-import json
-from pathlib import Path
 from typing import Any
-from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
@@ -11,8 +8,8 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.models import Asset, CollectorRun, Evidence
-from app.services.path_security import contained_path
+from app.models import Asset
+from app.services.change_aware_evidence import record_collection
 from app.services.windows_agent_credentials import verify_credential
 
 
@@ -267,9 +264,6 @@ def ingest_windows_agent(
             if not mapping:
                 continue
 
-            run_id = f"COL-{uuid4().hex[:12].upper()}"
-            evidence_id = f"EV-{uuid4().hex[:12].upper()}"
-
             output = build_evidence_output(
                 payload,
                 collector_name,
@@ -279,67 +273,28 @@ def ingest_windows_agent(
             validated = server_validated(result)
             run_status = "completed" if validated else "failed"
 
-            db.add(
-                CollectorRun(
-                    run_id=run_id,
-                    asset_id=payload.asset_id,
-                    collector=collector_name,
-                    status=run_status,
-                    output=output,
-                )
-            )
-
-            try:
-                evidence_dir = contained_path(
-                    settings.evidence_root,
-                    payload.asset_id,
-                    collector_name,
-                )
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail="Invalid asset path.") from exc
-            evidence_dir.mkdir(
-                parents=True,
-                exist_ok=True,
-            )
-
-            evidence_path = (
-                evidence_dir
-                / f"{evidence_id}.json"
-            )
-            evidence_path.write_text(
-                json.dumps(
-                    output,
-                    indent=2,
-                    default=str,
-                ),
-                encoding="utf-8",
-            )
-
-            db.add(
-                Evidence(
-                    evidence_id=evidence_id,
-                    asset_id=payload.asset_id,
-                    control_id=mapping["control_id"],
-                    filename=evidence_path.name,
-                    file_path=str(evidence_path),
-                    source="windows_agent",
-                    description=(
-                        "Windows agent collector output "
-                        f"for {collector_name}"
-                    ),
-                    collector=collector_name,
-                    evidence_type=collector_name,
-                    frameworks=mapping["frameworks"],
-                    validated=validated,
-                )
+            persisted = record_collection(
+                db,
+                asset_id=payload.asset_id,
+                collector=collector_name,
+                output=output,
+                source="windows_agent",
+                control_id=mapping["control_id"],
+                frameworks=mapping["frameworks"],
+                validated=validated,
+                description=f"Windows agent collector output for {collector_name}",
+                run_status=run_status,
             )
 
             results.append(
                 {
                     "collector": collector_name,
-                    "run_id": run_id,
-                    "evidence_id": evidence_id,
+                    "run_id": persisted.run_id,
+                    "evidence_id": persisted.evidence_id,
                     "validated": validated,
+                    "evidence_created": persisted.evidence_created,
+                    "change_detected": persisted.change_detected,
+                    "change_reason": persisted.reason,
                 }
             )
 

@@ -98,6 +98,7 @@ class Evidence(Base):
     evidence_type = Column(String(128), nullable=True)
     frameworks = Column(JSON, default=dict)
     validated = Column(Boolean, default=False)
+    baseline_hash = Column(String(64), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 

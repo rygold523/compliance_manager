@@ -1,15 +1,12 @@
 import traceback
 from datetime import datetime, timezone
-from pathlib import Path
-from uuid import uuid4
-import json
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from app.core.config import settings
 from app.core.database import get_db
-from app.models import Asset, Evidence, CollectorRun
+from app.models import Asset
 from app.schemas.schemas import CollectorRunRequest
 from app.services.evidence_collectors import run_collector, COLLECTORS
+from app.services.change_aware_evidence import record_collection
 
 
 def run_post_collection_analysis_safely(db):
@@ -65,7 +62,6 @@ def run_collectors(payload: CollectorRunRequest, db: Session = Depends(get_db)):
             asset_results = []
 
             for collector_name in payload.collectors:
-                run_id = f"COL-{uuid4().hex[:12].upper()}"
                 # COLLECTOR_ERROR_HARDENING_V2
 
                 try:
@@ -111,41 +107,27 @@ def run_collectors(payload: CollectorRunRequest, db: Session = Depends(get_db)):
                 if output.get("status") == "completed":
                     asset.last_seen = datetime.now(timezone.utc)
 
-                db.add(CollectorRun(
-                    run_id=run_id,
-                    asset_id=asset.asset_id,
-                    collector=collector_name,
-                    status=output["status"],
-                    output=output,
-                ))
-
-                evidence_id = f"EV-{uuid4().hex[:12].upper()}"
-                evidence_dir = Path(settings.evidence_root) / asset.asset_id / collector_name
-                evidence_dir.mkdir(parents=True, exist_ok=True)
-                evidence_path = evidence_dir / f"{evidence_id}.json"
-                evidence_path.write_text(json.dumps(output, indent=2, default=str))
-
                 control_id = output.get("control_ids", [None])[0]
-
-                db.add(Evidence(
-                    evidence_id=evidence_id,
+                persisted = record_collection(
+                    db,
                     asset_id=asset.asset_id,
-                    control_id=control_id,
-                    filename=evidence_path.name,
-                    file_path=str(evidence_path),
-                    source="collector",
-                    description=f"Collector output for {collector_name}",
                     collector=collector_name,
-                    evidence_type=collector_name,
+                    output=output,
+                    source="collector",
+                    control_id=control_id,
                     frameworks=output.get("frameworks", {}),
                     validated=output.get("status") == "completed",
-                ))
+                    description=f"Collector output for {collector_name}",
+                )
 
                 asset_results.append({
-                    "run_id": run_id,
-                    "evidence_id": evidence_id,
+                    "run_id": persisted.run_id,
+                    "evidence_id": persisted.evidence_id,
                     "collector": collector_name,
                     "status": output["status"],
+                    "evidence_created": persisted.evidence_created,
+                    "change_detected": persisted.change_detected,
+                    "change_reason": persisted.reason,
                 })
 
             all_results.append({
@@ -174,7 +156,6 @@ def run_collectors(payload: CollectorRunRequest, db: Session = Depends(get_db)):
         requested_collectors.append("iam_users")
 
     for collector_name in requested_collectors:
-        run_id = f"COL-{uuid4().hex[:12].upper()}"
         try:
             output = run_collector(asset, collector_name)
             if not isinstance(output, dict):
@@ -186,41 +167,27 @@ def run_collectors(payload: CollectorRunRequest, db: Session = Depends(get_db)):
         if output.get("status") == "completed":
             asset.last_seen = datetime.now(timezone.utc)
 
-        db.add(CollectorRun(
-            run_id=run_id,
-            asset_id=asset.asset_id,
-            collector=collector_name,
-            status=output["status"],
-            output=output,
-        ))
-
-        evidence_id = f"EV-{uuid4().hex[:12].upper()}"
-        evidence_dir = Path(settings.evidence_root) / asset.asset_id / collector_name
-        evidence_dir.mkdir(parents=True, exist_ok=True)
-        evidence_path = evidence_dir / f"{evidence_id}.json"
-        evidence_path.write_text(json.dumps(output, indent=2, default=str))
-
         control_id = output.get("control_ids", [None])[0]
-
-        db.add(Evidence(
-            evidence_id=evidence_id,
+        persisted = record_collection(
+            db,
             asset_id=asset.asset_id,
-            control_id=control_id,
-            filename=evidence_path.name,
-            file_path=str(evidence_path),
-            source="collector",
-            description=f"Collector output for {collector_name}",
             collector=collector_name,
-            evidence_type=collector_name,
+            output=output,
+            source="collector",
+            control_id=control_id,
             frameworks=output.get("frameworks", {}),
             validated=output.get("status") == "completed",
-        ))
+            description=f"Collector output for {collector_name}",
+        )
 
         results.append({
-            "run_id": run_id,
-            "evidence_id": evidence_id,
+            "run_id": persisted.run_id,
+            "evidence_id": persisted.evidence_id,
             "collector": collector_name,
             "status": output["status"],
+            "evidence_created": persisted.evidence_created,
+            "change_detected": persisted.change_detected,
+            "change_reason": persisted.reason,
         })
 
     db.commit()
