@@ -116,3 +116,35 @@ def test_routes_and_role_boundaries_are_registered():
     assert "/api/assessments/{assessment_id}/status" in paths
     assert "/api/assessments/{assessment_id}/evidence" in paths
     assert "/api/assessments/{assessment_id}/evidence/{evidence_id}" in paths
+
+
+def test_disabled_framework_preserves_history_but_blocks_mutations(db, tmp_path, monkeypatch):
+    add_evidence(db, tmp_path)
+    configure(monkeypatch, tmp_path)
+    assessment = service.create_assessment(
+        db, name="Disabled PCI", owner="Compliance", actor="dashboard.admin", framework="pci_dss"
+    )
+    service.link_evidence(db, assessment.assessment_id, "EV-ASSESSMENT", "dashboard.admin")
+    monkeypatch.setattr(service, "is_enabled", lambda fw: False if fw == "pci_dss" else True)
+    with pytest.raises(ValueError, match="disabled"):
+        service.link_evidence(db, assessment.assessment_id, "EV-ASSESSMENT", "dashboard.admin")
+    with pytest.raises(ValueError, match="disabled"):
+        service.unlink_evidence(db, assessment.assessment_id, "EV-ASSESSMENT", "dashboard.admin")
+    with pytest.raises(ValueError, match="disabled"):
+        service.update_status(db, assessment.assessment_id, "in_progress", "dashboard.admin")
+    assert service.active_assessment_evidence_ids(db) == {"EV-ASSESSMENT"}
+    assert db.query(AssessmentEvidence).count() == 1
+    service.update_status(db, assessment.assessment_id, "cancelled", "dashboard.admin")
+    assert db.query(AssessmentEvidence).count() == 1
+
+
+def test_disabled_framework_can_close_completed_assessment(db, tmp_path, monkeypatch):
+    configure(monkeypatch, tmp_path)
+    assessment = service.create_assessment(
+        db, name="Completed PCI", owner="Compliance", actor="dashboard.admin", framework="pci_dss"
+    )
+    service.update_status(db, assessment.assessment_id, "in_progress", "dashboard.admin")
+    service.update_status(db, assessment.assessment_id, "completed", "dashboard.admin")
+    monkeypatch.setattr(service, "is_enabled", lambda fw: False)
+    service.update_status(db, assessment.assessment_id, "closed", "dashboard.admin")
+    assert assessment.status == "closed"

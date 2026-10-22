@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.api.changelog import write_changelog
 from app.auth.service import audit
 from app.models.models import Assessment, AssessmentEvidence, Evidence
+from app.services.framework_registry import ALL, is_enabled
 
 
 ASSESSMENT_STATUSES = frozenset({"planned", "in_progress", "completed", "closed", "cancelled"})
@@ -68,6 +69,15 @@ def create_assessment(db: Session, *, name: str, owner: str, actor: str,
     return row
 
 
+def _ensure_framework_editable(assessment: Assessment, *, target_status: str | None = None) -> None:
+    """Preserve historical records while preventing work on disabled frameworks."""
+    framework = assessment.framework
+    if framework in ALL and not is_enabled(framework):
+        # Closing/cancelling existing work is allowed under normal lifecycle rules.
+        if target_status not in {"closed", "cancelled"}:
+            raise ValueError("Assessment framework is disabled.")
+
+
 def update_status(db: Session, assessment_id: str, status: str, actor: str) -> Assessment:
     actor = _clean(actor, "actor", 128)
     status = status.strip().lower()
@@ -76,6 +86,7 @@ def update_status(db: Session, assessment_id: str, status: str, actor: str) -> A
     row = db.query(Assessment).filter(Assessment.assessment_id == assessment_id).first()
     if row is None:
         raise LookupError("Assessment not found.")
+    _ensure_framework_editable(row, target_status=status)
     if status == row.status:
         return row
     if status != row.status and status not in ALLOWED_TRANSITIONS[row.status]:
@@ -100,6 +111,7 @@ def link_evidence(db: Session, assessment_id: str, evidence_id: str, actor: str,
     assessment = db.query(Assessment).filter(Assessment.assessment_id == assessment_id).first()
     if assessment is None:
         raise LookupError("Assessment not found.")
+    _ensure_framework_editable(assessment)
     if assessment.status in {"closed", "cancelled"}:
         raise ValueError("Evidence cannot be linked to a closed or cancelled assessment.")
     evidence = db.query(Evidence).filter(Evidence.evidence_id == evidence_id).first()
@@ -133,6 +145,10 @@ def unlink_evidence(db: Session, assessment_id: str, evidence_id: str, actor: st
     ).first()
     if row is None:
         raise LookupError("Assessment evidence relationship not found.")
+    assessment = db.query(Assessment).filter(Assessment.assessment_id == assessment_id).first()
+    if assessment is None:
+        raise LookupError("Assessment not found.")
+    _ensure_framework_editable(assessment)
     db.delete(row)
     audit(db, "assessment_evidence_unlinked", username=actor,
           detail={"assessment_id": assessment_id, "evidence_id": evidence_id})

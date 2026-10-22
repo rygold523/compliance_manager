@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.models import Evidence, Finding, Asset
 from app.services.compliance import FRAMEWORKS, framework_label
+from app.services.framework_registry import is_enabled, is_assessment_ready
 
 router = APIRouter()
 
@@ -374,6 +375,10 @@ def _compliance_records(
 
 
 def calculate_score(framework: str, db: Session, environment: str | None = None) -> dict:
+    if not is_enabled(framework):
+        return {"framework": framework, "label": framework_label(framework), "error": "Framework disabled", "assessment_ready": is_assessment_ready(framework)}
+    if not is_assessment_ready(framework):
+        return {"framework": framework, "label": framework_label(framework), "error": "Assessment unavailable", "assessment_ready": False}
     if framework not in FRAMEWORK_REQUIREMENTS:
         return {
             "framework": framework,
@@ -525,7 +530,7 @@ def list_environments(db: Session = Depends(get_db)):
 def all_scores(environment: str = "all", db: Session = Depends(get_db)):
     return {
         fw: calculate_score(fw, db, environment=environment)
-        for fw in FRAMEWORKS
+        for fw in FRAMEWORKS if is_enabled(fw)
     }
 
 
@@ -544,6 +549,10 @@ def findings_by_framework(
     environment: str = "all",
     db: Session = Depends(get_db),
 ):
+    if not is_enabled(framework):
+        raise HTTPException(status_code=409, detail="Framework is disabled")
+    if not is_assessment_ready(framework):
+        raise HTTPException(status_code=409, detail="Framework assessment is unavailable")
     asset_ids = _asset_ids_for_environment(
         db,
         environment,
@@ -569,6 +578,10 @@ def evidence_by_framework(
     environment: str = "all",
     db: Session = Depends(get_db),
 ):
+    if not is_enabled(framework):
+        raise HTTPException(status_code=409, detail="Framework is disabled")
+    if not is_assessment_ready(framework):
+        raise HTTPException(status_code=409, detail="Framework assessment is unavailable")
     asset_ids = _asset_ids_for_environment(
         db,
         environment,

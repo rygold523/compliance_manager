@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException
+from app.services.framework_registry import is_enabled, is_assessment_ready
 from app.services.audit_readiness import audit_readiness_all, audit_readiness_for_framework
 
 router = APIRouter(prefix="/api/audit-readiness", tags=["audit-readiness"])
@@ -13,7 +14,9 @@ def get_all_audit_readiness():
 
 @router.get("/{framework}")
 def get_framework_audit_readiness(framework: str):
-    if framework not in SUPPORTED:
-        raise HTTPException(status_code=404, detail=f"Unsupported framework: {framework}")
+    if not is_enabled(framework):
+        raise HTTPException(status_code=409, detail="Framework is disabled")
+    if not is_assessment_ready(framework):
+        raise HTTPException(status_code=409, detail="Framework assessment is unavailable")
 
     return audit_readiness_for_framework(framework)

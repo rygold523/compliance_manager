@@ -1,3 +1,4 @@
+from app.services.framework_registry import is_enabled
 from collections import defaultdict
 from pathlib import Path
 import json
@@ -543,6 +544,7 @@ def audit_readiness_all():
         "iso_27002",
     ]
 
+    frameworks = [framework for framework in frameworks if is_enabled(framework)]
     prepared = prepare_audit_readiness_data()
 
     return {

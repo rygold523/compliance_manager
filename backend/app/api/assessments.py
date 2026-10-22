@@ -8,6 +8,7 @@ from app.auth.dependencies import require_roles
 from app.core.database import get_db
 from app.models.models import Assessment, AssessmentEvidence
 from app.services import assessment_evidence as service
+from app.services.framework_registry import ALL, is_enabled, is_assessment_ready
 
 
 router = APIRouter(prefix="/api/assessments", tags=["Assessments"])
@@ -71,6 +72,11 @@ def create_assessment(
     db: Session = Depends(get_db),
     admin=Depends(require_roles("admin")),
 ):
+    if payload.framework in ALL:
+        if not is_enabled(payload.framework):
+            raise HTTPException(status_code=409, detail="Framework is disabled")
+        if not is_assessment_ready(payload.framework):
+            raise HTTPException(status_code=409, detail="Framework assessment is unavailable")
     try:
         row = service.create_assessment(db, actor=admin.username, **payload.model_dump())
     except ValueError as exc:

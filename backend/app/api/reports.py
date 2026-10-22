@@ -8,6 +8,7 @@ import json
 import re
 
 from app.services.control_catalog import list_controls
+from app.services.framework_registry import is_enabled, is_assessment_ready
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 
@@ -92,6 +93,10 @@ def normalize_framework(framework):
     normalized = FRAMEWORK_ALIASES.get((framework or "").lower())
     if not normalized:
         raise HTTPException(status_code=404, detail=f"Unsupported framework: {framework}")
+    if not is_enabled(normalized):
+        raise HTTPException(status_code=409, detail="Framework is disabled")
+    if not is_assessment_ready(normalized):
+        raise HTTPException(status_code=409, detail="Framework assessment and reporting are unavailable")
     return normalized
 
 
