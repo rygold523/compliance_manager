@@ -2,6 +2,7 @@ from app.api import iam_db
 from app.api import auth
 from app.api import admin_users
 from app.api import framework_registry
+from app.api import requirements_comparison
 from app.api import requirements_management
 from app.api import requirements_update_check
 from app.api import access_reviews
@@ -84,6 +85,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(admin_users.router)
 app.include_router(framework_registry.router)
+app.include_router(requirements_comparison.router)
 app.include_router(requirements_management.router)
 app.include_router(requirements_update_check.router)
 app.include_router(access_reviews.router)
