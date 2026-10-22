@@ -215,6 +215,7 @@ import ContinuousComplianceState from "./pages/continuous-compliance/ContinuousC
 import IAM from "./pages/IAM";
 import UserManagement from "./pages/UserManagement";
 import AccessReviews from "./pages/AccessReviews";
+import FrameworkManagement from "./pages/FrameworkManagement";
 import AuthGate from "./AuthGate";
 import { API, apiFetch } from "./auth";
 import { formatDateTime, isTimestampValue } from "./dateTime";
@@ -1665,6 +1666,9 @@ async function deployAgent() {
           {canManageUsers && (
             <button className={activePage === "users" ? "active" : ""} onClick={() => setActivePage("users")}>Users</button>
           )}
+          {currentUser?.role === "admin" && (
+            <button className={activePage === "frameworks" ? "active" : ""} onClick={() => setActivePage("frameworks")}>Framework Management</button>
+          )}
           {canReviewAccess && (
             <button className={activePage === "access-reviews" ? "active" : ""} onClick={() => setActivePage("access-reviews")}>Access Reviews</button>
           )}
@@ -1677,6 +1681,10 @@ async function deployAgent() {
 
 {activePage === "users" && canManageUsers && (
   <UserManagement currentUser={currentUser} />
+)}
+
+{activePage === "frameworks" && currentUser?.role === "admin" && (
+  <FrameworkManagement />
 )}
 
 {activePage === "access-reviews" && canReviewAccess && (
