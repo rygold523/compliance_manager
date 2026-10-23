@@ -932,7 +932,13 @@ function App({ currentUser, onLogout }) {
     if (activePage === "changelog") {
       return loadChangelog(signal);
     }
-    if (activePage === "iam") {
+    if (
+      activePage === "iam" ||
+      activePage === "users" ||
+      activePage === "frameworks" ||
+      activePage === "access-reviews"
+    ) {
+      // These pages manage their own API requests.
       return;
     }
     return refreshDashboard(signal);
