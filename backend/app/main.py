@@ -4,6 +4,7 @@ from app.api import admin_users
 from app.api import framework_registry
 from app.api import requirements_comparison
 from app.api import requirements_management
+from app.api import requirements_coverage
 from app.api import requirements_update_check
 from app.api import access_reviews
 from app.api import assessments
@@ -87,6 +88,7 @@ app.include_router(admin_users.router)
 app.include_router(framework_registry.router)
 app.include_router(requirements_comparison.router)
 app.include_router(requirements_management.router)
+app.include_router(requirements_coverage.router)
 app.include_router(requirements_update_check.router)
 app.include_router(access_reviews.router)
 app.include_router(assessments.router)
